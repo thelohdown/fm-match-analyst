@@ -66,13 +66,16 @@ internal static class GamePluginBuildCatalog
         out GamePluginBuild build, out string failure)
     {
         build = default;
-        failure = "GAME_MATCH entry AOB was not found";
-        using var stream = File.Open(modulePath, FileMode.Open, FileAccess.Read,
-            FileShare.ReadWrite | FileShare.Delete);
-        using var image = new PEReader(stream);
-        if (image.PEHeaders.PEHeader is not { Magic: PEMagic.PE32Plus } header)
+        if (!GameMatchTickSignature.IsAvailable)
         {
-            failure = "game_plugin.dll is not a PE32+ image";
+            failure = $"no GAME_MATCH entry AOB signature exists yet for {RuntimeInformation.ProcessArchitecture}";
+            return false;
+        }
+
+        failure = "GAME_MATCH entry AOB was not found";
+        if (!TryGetExecutableRanges(moduleHandle, modulePath, out var ranges, out var rangeFailure))
+        {
+            failure = rangeFailure;
             return false;
         }
 
@@ -80,23 +83,12 @@ internal static class GamePluginBuildCatalog
         // Overlap chunks so a signature crossing a read boundary is still found.
         var buffer = new byte[1024 * 1024];
         var matchRva = -1;
-        foreach (var section in image.PEHeaders.SectionHeaders)
+        foreach (var (start, size) in ranges)
         {
-            if ((section.SectionCharacteristics & SectionCharacteristics.MemExecute) == 0)
-                continue;
-            var start = section.VirtualAddress;
-            var size = section.VirtualSize;
-            if (start < 0 || size < 0 || (long)start + size > header.SizeOfImage)
-            {
-                failure = "invalid executable section bounds";
-                return false;
-            }
-
             for (var offset = 0; size - offset >= GameMatchTickSignature.Length;)
             {
                 var count = Math.Min(buffer.Length, size - offset);
-                if (!ReadProcessMemory(GetCurrentProcess(), moduleHandle + start + offset,
-                        buffer, (nuint)count, out var read) || read != (nuint)count)
+                if (!TryReadOwnMemory(moduleHandle + start + offset, buffer, count))
                 {
                     failure = "unable to read an executable section for AOB scanning";
                     return false;
@@ -128,6 +120,8 @@ internal static class GamePluginBuildCatalog
     // point recorded in the module's unwind table.
     internal static bool IsFunctionEntry(nint moduleHandle, int rva)
     {
+        if (MacNative.IsMacOS) return MacNative.IsFunctionEntry(moduleHandle, rva);
+
         var address = (ulong)(moduleHandle + rva);
         var functionEntry = RtlLookupFunctionEntry(address, out var imageBase, default);
         if (functionEntry == default || imageBase != (ulong)moduleHandle)
@@ -139,8 +133,59 @@ internal static class GamePluginBuildCatalog
         return Marshal.ReadInt32(functionEntry) == rva;
     }
 
+    // Executable (RVA, size) ranges: PE section headers on Windows, Mach-O
+    // load commands of the mapped image on macOS.
+    private static bool TryGetExecutableRanges(
+        nint moduleHandle, string modulePath, out List<(int Rva, int Size)> ranges, out string failure)
+    {
+        if (MacNative.IsMacOS) return MacNative.TryGetExecutableRanges(moduleHandle, out ranges, out failure);
+
+        ranges = [];
+        using var stream = File.Open(modulePath, FileMode.Open, FileAccess.Read,
+            FileShare.ReadWrite | FileShare.Delete);
+        using var image = new PEReader(stream);
+        if (image.PEHeaders.PEHeader is not { Magic: PEMagic.PE32Plus } header)
+        {
+            failure = "game_plugin.dll is not a PE32+ image";
+            return false;
+        }
+
+        foreach (var section in image.PEHeaders.SectionHeaders)
+        {
+            if ((section.SectionCharacteristics & SectionCharacteristics.MemExecute) == 0)
+                continue;
+            var start = section.VirtualAddress;
+            var size = section.VirtualSize;
+            if (start < 0 || size < 0 || (long)start + size > header.SizeOfImage)
+            {
+                failure = "invalid executable section bounds";
+                return false;
+            }
+
+            ranges.Add((start, size));
+        }
+
+        failure = string.Empty;
+        return true;
+    }
+
+    private static bool TryReadOwnMemory(nint address, byte[] buffer, int count)
+    {
+        if (MacNative.IsMacOS)
+        {
+            if (!VirtualMemory.IsReadable(address, count)) return false;
+            Marshal.Copy(address, buffer, 0, count);
+            return true;
+        }
+
+        return ReadProcessMemory(GetCurrentProcess(), address, buffer, (nuint)count, out var read) &&
+               read == (nuint)count;
+    }
+
     private static string GetModulePath(nint moduleHandle)
     {
+        if (MacNative.IsMacOS) return MacNative.GetImagePath(moduleHandle);
+
         var buffer = new StringBuilder(MaximumWindowsPathLength);
         var length = GetModuleFileName(moduleHandle, buffer, buffer.Capacity);
         if (length == 0)

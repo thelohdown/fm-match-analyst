@@ -138,7 +138,7 @@ internal sealed class GameMatchTickHook : IDisposable
             return false;
         }
 
-        var moduleBase = GetModuleHandle("game_plugin.dll");
+        var moduleBase = FindGamePluginModule();
         if (moduleBase == default)
         {
             if (logModuleNotLoaded)
@@ -3331,6 +3331,30 @@ internal sealed class GameMatchTickHook : IDisposable
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern nint GetModuleHandle(string moduleName);
+
+    private static bool _macModuleLogged;
+
+    // Windows: game_plugin.dll by name. macOS: the loaded image whose path
+    // contains game_plugin, found through dyld. The first time it is found on
+    // macOS, log what a port needs to know about it.
+    private static nint FindGamePluginModule()
+    {
+        if (!MacNative.IsMacOS) return GetModuleHandle("game_plugin.dll");
+
+        var header = MacNative.FindGamePlugin(out var path, out var candidates);
+        if (header == default || _macModuleLogged) return header;
+        _macModuleLogged = true;
+        foreach (var candidate in candidates)
+            PluginLogger.Info($"[macOS] game_plugin candidate: {candidate.Path} at {FormatPointer(candidate.Header)}.");
+        var functionCount = MacNative.CountFunctionStarts(header);
+        var ranges = MacNative.TryGetExecutableRanges(header, out var found, out var failure)
+            ? string.Join(", ", found.Select(range => $"0x{range.Rva:X}+0x{range.Size:X}"))
+            : $"unavailable ({failure})";
+        PluginLogger.Info(
+            $"[macOS] Using {path} at {FormatPointer(header)}: cputype=0x{MacNative.ReadCpuType(header):X8}, " +
+            $"function starts={functionCount}, executable ranges={ranges}.");
+        return header;
+    }
 
     // Owned by one candidate identity generation, then shared with its confirmed
     // animated-match session. Called only inside the hook's existing post-Original

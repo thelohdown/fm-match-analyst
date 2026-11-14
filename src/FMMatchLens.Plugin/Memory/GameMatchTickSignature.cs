@@ -1,3 +1,5 @@
+using System.Runtime.InteropServices;
+
 namespace FMMatchLens.Plugin.Memory;
 
 internal static class GameMatchTickSignature
@@ -15,10 +17,21 @@ internal static class GameMatchTickSignature
         "80 B9 6E 55 01 00 01 0F 85 ? ? ? ? " +
         "80 BF 75 55 01 00 00 0F 84 ? ? ? ?";
 
-    private static readonly byte?[] Bytes = Pattern.Split(' ')
-        .Select(token => token == "?" ? (byte?)null : Convert.ToByte(token, 16)).ToArray();
+    // macOS on Apple Silicon runs an arm64 build of game_plugin, so the x86-64
+    // pattern above cannot match there. Leave this empty until the GAME_MATCH
+    // Advance entry has been identified in the Mac binary.
+    internal const string PatternArm64 = "";
+
+    private static readonly byte?[] Bytes = Parse(
+        RuntimeInformation.ProcessArchitecture == Architecture.Arm64 ? PatternArm64 : Pattern);
+
+    internal static bool IsAvailable => Bytes.Length > 0;
 
     internal static int Length => Bytes.Length;
+
+    private static byte?[] Parse(string pattern) => pattern
+        .Split(' ', StringSplitOptions.RemoveEmptyEntries)
+        .Select(token => token == "?" ? (byte?)null : Convert.ToByte(token, 16)).ToArray();
 
     // Return false on ambiguity, even if one of the matches is not an entry.
     // The caller retains the candidate across chunks and executable sections.

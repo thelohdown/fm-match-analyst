@@ -39,3 +39,6 @@ tools/
 dev/
 docs-local
 src/FMMatchLens.Plugin/lib/
+
+# macOS port: copies of game files and logs stay on the local Mac
+local/
