@@ -132,16 +132,33 @@ cmd_setup() {
   done
 }
 
+# The .NET installer puts dotnet in /usr/local/share/dotnet and only adds it to PATH
+# for new Terminal windows, so look in the usual places too.
+find_dotnet() {
+  local candidate
+  for candidate in "$(command -v dotnet 2>/dev/null || true)" \
+                   /usr/local/share/dotnet/dotnet /opt/homebrew/bin/dotnet "$HOME/.dotnet/dotnet"; do
+    if [ -n "$candidate" ] && [ -x "$candidate" ] && [ -n "$("$candidate" --list-sdks 2>/dev/null || true)" ]; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
 cmd_build() {
-  if ! command -v dotnet >/dev/null 2>&1; then
+  local dotnet
+  if ! dotnet="$(find_dotnet)"; then
     echo "The .NET SDK is not installed. Install it with:  brew install --cask dotnet-sdk"
+    echo "(or download the macOS Arm64 SDK installer from https://dotnet.microsoft.com/download)"
     exit 1
   fi
   if [ ! -f "$REPO/src/FMMatchLens.Plugin/lib/BepInEx.Core.dll" ]; then
     echo "Run ./mac/dev.sh setup first, so the BepInEx reference DLLs are in place."
     exit 1
   fi
-  dotnet build "$PROJECT" --configuration Release -nologo
+  echo "dotnet: $dotnet ($("$dotnet" --version))"
+  "$dotnet" build "$PROJECT" --configuration Release -nologo
   echo "built: $PLUGIN_DLL"
 }
 
