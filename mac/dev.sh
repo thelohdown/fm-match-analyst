@@ -193,11 +193,10 @@ cmd_logs() {
   cp "$log" "$LOCAL/logs/LogOutput-$stamp.log"
   cp "$log" "$LOCAL/logs/latest.log"
   echo "saved: local/logs/LogOutput-$stamp.log"
-  echo "log started: $(head -1 "$log" | sed -n 's/.*(\(.*\)).*/\1/p')"
   if [ ! -f "$BEPINEX/plugins/FMMatchLens/FMMatchLens.Plugin.dll" ]; then
-    echo "NOTE: the plugin is not installed yet. Run ./mac/dev.sh install, then relaunch FM27."
-  elif [ "$BEPINEX/plugins/FMMatchLens/FMMatchLens.Plugin.dll" -nt "$log" ]; then
-    echo "NOTE: the plugin was installed after this log started. Relaunch FM27 to load it."
+    echo "NOTE: the plugin is not installed. Run ./mac/dev.sh install, then relaunch FM27."
+  elif ! grep -q "Loading \[FMMatchLens" "$log"; then
+    echo "NOTE: FMMatchLens did not load in this launch. If you just installed it, relaunch FM27."
   fi
   local probe="$BEPINEX/plugins/FMMatchLens/data/mac-probe"
   if [ -d "$probe" ]; then
