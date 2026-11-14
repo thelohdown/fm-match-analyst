@@ -133,11 +133,14 @@ cmd_setup() {
 }
 
 # The .NET installer puts dotnet in /usr/local/share/dotnet and only adds it to PATH
-# for new Terminal windows, so look in the usual places too.
+# for new Terminal windows, so look in the usual places too. The Intel (x64) SDK, which an
+# Intel Homebrew running under Rosetta installs, goes to /usr/local/share/dotnet/x64 on
+# Apple Silicon; it builds the plugin just as well, since the DLL is architecture-neutral.
 find_dotnet() {
   local candidate
   for candidate in "$(command -v dotnet 2>/dev/null || true)" \
-                   /usr/local/share/dotnet/dotnet /opt/homebrew/bin/dotnet "$HOME/.dotnet/dotnet"; do
+                   /usr/local/share/dotnet/dotnet /usr/local/share/dotnet/x64/dotnet \
+                   /opt/homebrew/bin/dotnet "$HOME/.dotnet/dotnet"; do
     if [ -n "$candidate" ] && [ -x "$candidate" ] && [ -n "$("$candidate" --list-sdks 2>/dev/null || true)" ]; then
       echo "$candidate"
       return 0
