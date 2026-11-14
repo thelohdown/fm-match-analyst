@@ -173,7 +173,13 @@ cmd_logs() {
   cp "$log" "$LOCAL/logs/LogOutput-$stamp.log"
   cp "$log" "$LOCAL/logs/latest.log"
   echo "saved: local/logs/LogOutput-$stamp.log"
-  grep -n -i "Chainloader\|FMMatchLens\|\[macOS\]\|GAME_MATCH\|game_plugin" "$log" | tail -60 || true
+  local probe="$BEPINEX/plugins/FMMatchLens/data/mac-probe"
+  if [ -d "$probe" ]; then
+    mkdir -p "$LOCAL/probe"
+    cp "$probe"/*.bin "$LOCAL/probe/" 2>/dev/null || true
+    echo "probe snapshots in local/probe: $(ls "$LOCAL/probe" | wc -l | tr -d ' ')"
+  fi
+  grep -n -i "Chainloader\|FMMatchLens\|\[macOS\|GAME_MATCH\|game_plugin" "$log" | tail -60 || true
 }
 
 cmd_health() {

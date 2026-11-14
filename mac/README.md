@@ -11,12 +11,18 @@ Apple Silicon Macs. Upstream FMMatchLens supports Windows only.
 | Finding the game library (dyld instead of `GetModuleHandle`) | Written, compiles; untested in game |
 | Executable ranges and function entries from Mach-O load commands | Written; tested against a real arm64 Mach-O (matches LIEF) |
 | Graphics folder default (`~/Library/Application Support/...`) | Written |
-| `GAME_MATCH` Advance hook in the arm64 build | **Located** statically in the FM27 demo (see Findings); not wired in or tested live yet |
+| `GAME_MATCH` Advance hook in the arm64 build | **Located** in the FM27 demo (see Findings); hooked by the read-only probe, not tested live yet |
 | Native memory offsets (`Memory/Offsets.cs`) on macOS | **Partly mapped**: fields near the end of `GAME_MATCH` sit 0x10 lower than on Windows |
 
-Until the hook is found, the plugin should load, start its local API and log
-what it finds about the game library under `[macOS]` lines, but it will not
-capture matches.
+On macOS the plugin runs a **read-only probe** instead of the full capture until
+the macOS offsets are verified (`[macOS] Mode = probe` in
+`BepInEx/config/com.fmmatchlens.plugin.cfg`; `capture` switches back). The probe
+hooks `GAME_MATCH` Advance, calls the original, then only reads: every 5 seconds
+per match object it logs candidate fields (ticks, period, lifecycle and check
+bytes, ball position, team pointers) at the shifted offsets, with the Windows
+offsets alongside, and it saves raw snapshots of the match object and both team
+objects to `BepInEx/plugins/FMMatchLens/data/mac-probe/`. `./mac/dev.sh logs`
+copies them to `local/probe/`.
 
 ## One-time setup
 

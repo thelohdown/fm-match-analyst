@@ -13,6 +13,7 @@ public sealed class Plugin : BasePlugin
 {
     private LocalApiServer? _apiServer;
     private GameMatchTickHook? _gameMatchTickHook;
+    private MacMatchProbe? _macProbe;
     private MatchArchiveStore? _archiveStore;
     private GraphicsAssetIndex? _graphicsAssets;
     private Timer? _hookRetryTimer;
@@ -49,6 +50,15 @@ public sealed class Plugin : BasePlugin
         _apiServer = new LocalApiServer(realtimeTimeline, _archiveStore, _graphicsAssets);
 
         _apiServer.Start();
+        if (MacNative.IsMacOS && !string.Equals(options.MacMode.Value, "capture", StringComparison.OrdinalIgnoreCase))
+        {
+            // The macOS memory layout is not verified yet, so run the read-only probe
+            // instead of the full capture.
+            _macProbe = new MacMatchProbe(Path.Combine(dataPath, "mac-probe"));
+            _macProbe.Start();
+            return;
+        }
+
         _gameMatchTickHook = new GameMatchTickHook(realtimeTimeline);
         if (!_gameMatchTickHook.Start())
         {
@@ -69,6 +79,7 @@ public sealed class Plugin : BasePlugin
         _hookRetryTimer?.Dispose();
         _hookRetryTimer = null;
         _gameMatchTickHook?.Stop();
+        _macProbe?.Stop();
         _apiServer?.Stop();
         _archiveStore?.Dispose();
         PluginLogger.Info($"{ProjectMetadata.Name} stopped.");

@@ -18,6 +18,13 @@ internal sealed class PluginOptions
             DefaultGraphicsPath(),
             "Root directory containing Football Manager graphics packs and their config.xml files.");
 
+        MacMode = config.Bind(
+            "macOS",
+            "Mode",
+            "probe",
+            "macOS only. probe: hook the match update read-only and log and snapshot candidate fields " +
+            "(the default until the macOS offsets are verified). capture: run the normal capture.");
+
         ArchiveCompression = config.Bind(
             "Archive",
             "Compression",
@@ -61,6 +68,8 @@ internal sealed class PluginOptions
     public ConfigEntry<string> LogMode { get; }
 
     public ConfigEntry<string> GraphicsPath { get; }
+
+    public ConfigEntry<string> MacMode { get; }
 
     public ConfigEntry<string> ArchiveCompression { get; }
 

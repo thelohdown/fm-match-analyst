@@ -18,9 +18,18 @@ internal static class GameMatchTickSignature
         "80 BF 75 55 01 00 00 0F 84 ? ? ? ?";
 
     // macOS on Apple Silicon runs an arm64 build of game_plugin, so the x86-64
-    // pattern above cannot match there. Leave this empty until the GAME_MATCH
-    // Advance entry has been identified in the Mac binary.
-    internal const string PatternArm64 = "";
+    // pattern above cannot match there. FM27 demo (Steam, macOS), arm64 RVA 0x4499CC0:
+    // the frame setup, the saved third argument, then the same three GAME_MATCH
+    // state checks, 0x10 lower in the object than on Windows:
+    //   ldrb [x22+0x2AC] (match+0x15560) == 1, ldrb [x22+0x2AA] (+0x1555E) == 1,
+    //   ldrb [x22+0x2B1] (+0x15565) == 0, with x22 = match + 0x152B4.
+    // Branch instructions are wildcarded. Matches exactly one function start there.
+    internal const string PatternArm64 =
+        "FF 43 02 D1 FC 6F 03 A9 FA 67 04 A9 F8 5F 05 A9 F6 57 06 A9 F4 4F 07 A9 " +
+        "FD 7B 08 A9 FD 03 02 91 E2 1F 00 B9 08 54 40 91 16 D1 0A 91 " +
+        "C8 B2 4A 39 1F 05 00 71 ? ? ? ? " +
+        "C8 AA 4A 39 1F 05 00 71 ? ? ? ? " +
+        "C8 C6 4A 39 ? ? ? ?";
 
     private static readonly byte?[] Bytes = Parse(
         RuntimeInformation.ProcessArchitecture == Architecture.Arm64 ? PatternArm64 : Pattern);
