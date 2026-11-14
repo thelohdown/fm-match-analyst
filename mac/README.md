@@ -13,6 +13,7 @@ Apple Silicon Macs. Upstream FMMatchLens supports Windows only.
 | Graphics folder default (`~/Library/Application Support/...`) | Written |
 | `GAME_MATCH` Advance hook in the arm64 build | **Located** in the FM27 demo (see Findings); hooked by the read-only probe, not tested live yet |
 | Native memory offsets (`Memory/Offsets.cs`) on macOS | **Partly mapped**: fields near the end of `GAME_MATCH` sit 0x10 lower than on Windows |
+| Native hook API | `Memory/NativeDetourCompat.cs` uses `INativeDetour` where BepInEx still has it (Windows builds) and MonoMod.Core's detour factory otherwise; the macOS FM27 package (Nov 2026) is the latter. Builds against both; the MonoMod.Core path is tested on Linux x64, not yet in game |
 
 On macOS the plugin runs a **read-only probe** instead of the full capture until
 the macOS offsets are verified (`[macOS] Mode = probe` in
@@ -30,6 +31,16 @@ copies them to `local/probe/`.
    `FM27-BepInEx` folder next to `fm.app`, add its `run_fm27_bepinex.sh` path
    plus `%command%` to Steam's Launch Options for FM27, launch once, and check
    `FM27-BepInEx/BepInEx/LogOutput.log` for "Chainloader startup complete".
+   - The package needs Apple Silicon and the latest macOS. The first launch
+     takes a few minutes while it makes an APFS clone of the game in
+     `FM27-BepInEx/shadow/` and re-signs it with JIT entitlements; `fm.app`
+     itself is never changed.
+   - Because the clone is re-signed, `game_plugin`'s file hash differs from the
+     Steam file, so the probe finds the hook by the arm64 signature instead.
+   - Demo: the launcher looks up the AppID from an appmanifest whose
+     `installdir` is exactly "Football Manager 27", which the demo's isn't. If
+     `launch.log` shows `AppID   : not found` and the game will not start,
+     write the demo's AppID to `steam_appid.txt` in the demo folder.
 2. Install the .NET SDK: `brew install --cask dotnet-sdk`.
 3. From this folder: `./mac/dev.sh setup`.
 

@@ -1,4 +1,3 @@
-using BepInEx.Unity.IL2CPP.Hook;
 using FMMatchLens.Plugin.Diagnostics;
 using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
@@ -45,7 +44,7 @@ internal sealed class MacMatchProbe
     private readonly string _outputDirectory;
     private readonly MatchUpdateDelegate _hookDelegate;
     private readonly ConcurrentDictionary<nint, MatchState> _matches = new();
-    private INativeDetour? _detour;
+    private NativeDetourHandle? _detour;
     private MatchUpdateDelegate? _original;
     private Timer? _retryTimer;
     private int _installing;
@@ -109,7 +108,10 @@ internal sealed class MacMatchProbe
             else if (GamePluginBuildCatalog.TryResolveAob(header, path, sha256, out var build, out var failure))
             {
                 rva = build.MatchTickHookRva;
-                source = "arm64 AOB signature";
+                // The BepInEx launcher re-signs a copy of the game, which changes the file hash but not the code.
+                source = KnownBuilds.Any(b => b.Arm64Rva == rva)
+                    ? "arm64 AOB signature, same RVA as the known FM27 demo build"
+                    : "arm64 AOB signature";
             }
             else
             {
@@ -125,10 +127,11 @@ internal sealed class MacMatchProbe
                 return;
             }
 
-            _detour = INativeDetour.CreateAndApply(header + rva, _hookDelegate, out MatchUpdateDelegate original);
-            _original = original;
+            PluginLogger.Info($"[macOS probe] Detour provider: {NativeDetourCompat.DescribeProvider()}");
+            _detour = NativeDetourCompat.CreateAndApply(header + rva, _hookDelegate, original => _original = original);
             PluginLogger.Info(
-                $"[macOS probe] Hooked GAME_MATCH Advance at game_plugin+0x{rva:X} ({source}, sha256={sha256}).");
+                $"[macOS probe] Hooked GAME_MATCH Advance at game_plugin+0x{rva:X} ({source}, sha256={sha256}) " +
+                $"via {_detour.Provider}, trampoline=0x{(long)_detour.TrampolinePtr:X}.");
         }
         catch (Exception ex)
         {

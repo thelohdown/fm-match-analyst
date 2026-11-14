@@ -1,4 +1,3 @@
-using BepInEx.Unity.IL2CPP.Hook;
 using FMMatchLens.Plugin.Diagnostics;
 using FMMatchLens.Plugin.Domain;
 using FMMatchLens.Plugin.Services;
@@ -74,7 +73,7 @@ internal sealed class GameMatchTickHook : IDisposable
     private readonly ConcurrentQueue<PendingDiagnosticMessage> _pendingDiagnosticMessages = new();
     private Timer? _diagnosticsTimer;
     private Timer? _tickDrainTimer;
-    private INativeDetour? _detour;
+    private NativeDetourHandle? _detour;
     private MatchUpdateDelegate? _original;
     private nint _targetAddress;
     private long _callCount;
@@ -202,17 +201,16 @@ internal sealed class GameMatchTickHook : IDisposable
             // here: in the bundled 22.07.31 version that trampoline performs
             // undo-call-redo on every Original invocation, which races when
             // MatchUpdate is called concurrently by simulation threads.
-            _detour = INativeDetour.CreateAndApply(
+            _detour = NativeDetourCompat.CreateAndApply(
                 _targetAddress,
                 _hookDelegate,
-                out MatchUpdateDelegate original);
-            _original = original;
+                original => _original = original);
             _started = true;
             StartCaptureWorkers();
             PluginLogger.Debug(
                 $"GAME_MATCH Advance post hook installed with permanent native trampoline at " +
                 $"game_plugin.dll+0x{_instructionOffset:X} ({FormatPointer(_targetAddress)}), " +
-                $"trampoline={FormatPointer(_detour.TrampolinePtr)}.");
+                $"trampoline={FormatPointer(_detour.TrampolinePtr)}, provider={_detour.Provider}.");
             PluginLogger.Info(
                 $"GAME_MATCH Advance hook installed for {build.Distribution} build " +
                 $"(sha256={build.Sha256}, rva=0x{build.MatchTickHookRva:X}).");
