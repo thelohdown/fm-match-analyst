@@ -94,7 +94,15 @@ cmd_setup() {
   : > "$LOCAL/game/FOUND.txt"
   find "$GAME" -path "$GAME/FM27-BepInEx" -prune -o -iname '*game_plugin*' -print -prune | while IFS= read -r path; do
     echo "$path" >> "$LOCAL/game/FOUND.txt"
-    cp -R "$path" "$LOCAL/game/"
+    if [ -d "$path/Contents/MacOS" ]; then
+      # A bundle: copy only its executable and Info.plist, not its multi-GB Resources.
+      local dest="$LOCAL/game/$(basename "$path")/Contents"
+      mkdir -p "$dest/MacOS"
+      cp "$path/Contents/MacOS/"* "$dest/MacOS/"
+      [ -f "$path/Contents/Info.plist" ] && cp "$path/Contents/Info.plist" "$dest/"
+    else
+      cp -R "$path" "$LOCAL/game/"
+    fi
   done
   if [ ! -s "$LOCAL/game/FOUND.txt" ]; then
     echo "WARNING: no file named like game_plugin was found under $GAME"

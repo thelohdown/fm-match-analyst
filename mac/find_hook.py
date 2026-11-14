@@ -34,9 +34,13 @@ import sys
 import capstone
 import lief
 
-TARGETS = {0x1556E: "== 1 check", 0x15570: "== 1 check", 0x15575: "== 0 check"}
-LIFECYCLE = set(range(0x15568, 0x1556C))  # Offsets.GameMatch.LifecycleStateA..D
-WINDOW = (0x15000, 0x16000)                # loads near the checks, shown as evidence
+# Windows offsets. --shift moves them all, e.g. --shift -0x10 for the macOS demo
+# build, whose x86_64 slice makes the same checks at 0x1555E, 0x15560 and 0x15565.
+WINDOWS_TARGETS = (0x1556E, 0x15570, 0x15575)
+WINDOWS_LIFECYCLE = range(0x15568, 0x1556C)  # Offsets.GameMatch.LifecycleStateA..D
+TARGETS = set(WINDOWS_TARGETS)
+LIFECYCLE = set(WINDOWS_LIFECYCLE)
+WINDOW = (0x15000, 0x16000)                  # loads near the checks, shown as evidence
 
 LOAD_WIDTH = {
     "ldrb": 1, "ldurb": 1, "ldrsb": 1, "ldursb": 1,
@@ -152,7 +156,12 @@ def main():
     parser.add_argument("binary")
     parser.add_argument("--top", type=int, default=10)
     parser.add_argument("--min-score", type=int, default=3)
+    parser.add_argument("--shift", type=lambda v: int(v, 0), default=0,
+                        help="add this to every Windows offset (e.g. -0x10)")
     args = parser.parse_args()
+    global TARGETS, LIFECYCLE
+    TARGETS = {o + args.shift for o in WINDOWS_TARGETS}
+    LIFECYCLE = {o + args.shift for o in WINDOWS_LIFECYCLE}
 
     binary = load_binary(args.binary)
     text = binary.get_segment("__TEXT")
