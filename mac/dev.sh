@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Dev loop for the FMMatchLens macOS port. Run from Terminal on the Mac:
 #
-#   ./mac/dev.sh setup     copy BepInEx reference DLLs into the build, and copy
-#                          FM27's native game library into local/ for analysis
+#   ./mac/dev.sh setup     copy FM27's native game library into local/ for analysis,
+#                          and BepInEx's reference DLLs into the build once installed
 #   ./mac/dev.sh build     build the plugin (needs the .NET 10 SDK)
 #   ./mac/dev.sh install   build, then copy the plugin into FM27's BepInEx folder
 #   ./mac/dev.sh logs      copy BepInEx's log into local/logs and show plugin lines
@@ -39,17 +39,7 @@ need_bepinex() {
 
 cmd_setup() {
   need_game
-  need_bepinex
-  local lib="$REPO/src/FMMatchLens.Plugin/lib"
-  mkdir -p "$lib" "$LOCAL/game"
-  for name in BepInEx.Core.dll BepInEx.Unity.IL2CPP.dll MonoMod.RuntimeDetour.dll MonoMod.Utils.dll; do
-    if [ -f "$BEPINEX/core/$name" ]; then
-      cp "$BEPINEX/core/$name" "$lib/"
-      echo "copied $name"
-    else
-      echo "WARNING: $name is missing from $BEPINEX/core"
-    fi
-  done
+  mkdir -p "$LOCAL/game"
 
   # FM's match engine lives in a native library. Its exact name and location on
   # macOS are not confirmed yet, so copy every match and record what each one is.
@@ -67,6 +57,23 @@ cmd_setup() {
     find "$LOCAL/game" -type f ! -name '*.txt' -exec shasum -a 256 {} \; > "$LOCAL/game/SHA256SUMS.txt"
     cat "$LOCAL/game/FILE-TYPES.txt"
   fi
+
+  # The BepInEx reference DLLs are only needed to build the plugin.
+  if [ ! -d "$BEPINEX/core" ]; then
+    echo "BepInEx is not installed yet (expected $BEPINEX), so the build references were not copied."
+    echo "Install the FM27 macOS BepInEx package, launch FM27 once, then run setup again."
+    return 0
+  fi
+  local lib="$REPO/src/FMMatchLens.Plugin/lib"
+  mkdir -p "$lib"
+  for name in BepInEx.Core.dll BepInEx.Unity.IL2CPP.dll MonoMod.RuntimeDetour.dll MonoMod.Utils.dll; do
+    if [ -f "$BEPINEX/core/$name" ]; then
+      cp "$BEPINEX/core/$name" "$lib/"
+      echo "copied $name"
+    else
+      echo "WARNING: $name is missing from $BEPINEX/core"
+    fi
+  done
 }
 
 cmd_build() {
