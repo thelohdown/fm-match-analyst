@@ -36,5 +36,16 @@ capture matches.
 ./mac/dev.sh health    # checks http://127.0.0.1:16726/api/health
 ```
 
+## Finding the hook
+
+`mac/find_hook.py` ranks functions in the arm64 game library by how closely
+their opening matches the Windows `GAME_MATCH` Advance entry: FPCR changes plus
+byte checks at match+0x1556E, +0x15570 and +0x15575. It needs
+`pip install lief capstone`. After `./mac/dev.sh setup`:
+
+```
+python3 mac/find_hook.py local/game/<arm64 game_plugin binary>
+```
+
 `local/` is git-ignored. It holds copies of Sports Interactive's game files and
 your logs, so keep it on this Mac.
