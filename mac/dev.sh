@@ -7,6 +7,7 @@
 #   ./mac/dev.sh install   build, then copy the plugin into FM27's BepInEx folder
 #   ./mac/dev.sh logs      copy BepInEx's log into local/logs and show plugin lines
 #   ./mac/dev.sh health    ask the running plugin's local API whether it is up
+#   ./mac/dev.sh where     show where FM27 and BepInEx were found
 #
 # Paths can be overridden with FM27_DIR and BEPINEX_DIR.
 # Everything under local/ stays on this Mac: it is git-ignored, because it
@@ -14,22 +15,69 @@
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
-GAME="${FM27_DIR:-$HOME/Library/Application Support/Steam/steamapps/common/Football Manager 27}"
-BEPINEX="${BEPINEX_DIR:-$GAME/FM27-BepInEx/BepInEx}"
+GAME="${FM27_DIR:-}"
+BEPINEX="${BEPINEX_DIR:-}"
 LOCAL="$REPO/local"
 PROJECT="$REPO/src/FMMatchLens.Plugin/FMMatchLens.Plugin.csproj"
 PLUGIN_DLL="$REPO/src/FMMatchLens.Plugin/bin/Release/net6.0/FMMatchLens.Plugin.dll"
 API="http://127.0.0.1:16726/api/health"
 
+app_version() {
+  defaults read "$1/Contents/Info" CFBundleShortVersionString 2>/dev/null || echo "unknown"
+}
+
+# Every fm.app in the usual places: the default Steam library, any other Steam
+# library listed in libraryfolders.vdf, Epic's shared folder, the Applications
+# folders, and whatever Spotlight knows about.
+list_fm_apps() {
+  {
+    for root in "$HOME/Library/Application Support/Steam/steamapps/common" \
+                "/Users/Shared/Epic Games" "/Applications" "$HOME/Applications"; do
+      if [ -d "$root" ]; then find "$root" -maxdepth 3 -name 'fm.app' -type d 2>/dev/null || true; fi
+    done
+    local vdf="$HOME/Library/Application Support/Steam/steamapps/libraryfolders.vdf"
+    if [ -f "$vdf" ]; then
+      sed -n 's/.*"path"[[:space:]]*"\(.*\)".*/\1/p' "$vdf" | while IFS= read -r lib; do
+        if [ -d "$lib/steamapps/common" ]; then
+          find "$lib/steamapps/common" -maxdepth 3 -name 'fm.app' -type d 2>/dev/null || true
+        fi
+      done || true
+    fi
+    if command -v mdfind >/dev/null 2>&1; then mdfind 'kMDItemFSName == "fm.app"' 2>/dev/null || true; fi
+  } | sort -u || true
+}
+
+# FM27 is the fm.app whose folder name or version says 27.
+find_game() {
+  [ -n "$GAME" ] && return 0
+  local app
+  while IFS= read -r app; do
+    [ -n "$app" ] || continue
+    case "$(dirname "$app")|$(app_version "$app")" in
+      *27*) GAME="$(dirname "$app")"; return 0 ;;
+    esac
+  done <<APPS
+$(list_fm_apps)
+APPS
+  return 1
+}
+
 need_game() {
-  if [ ! -d "$GAME" ]; then
-    echo "FM27 was not found at: $GAME"
-    echo "Set FM27_DIR to the folder that contains fm.app (Steam > FM27 > Manage > Browse local files)."
+  if ! find_game || [ ! -d "$GAME" ]; then
+    echo "FM27 was not found automatically. Football Manager apps found on this Mac:"
+    list_fm_apps | while IFS= read -r app; do
+      [ -n "$app" ] && echo "  $app  (version $(app_version "$app"))"
+    done
+    echo "Set FM27_DIR to the folder that contains FM27's fm.app (Steam > FM27 > Manage > Browse local files), e.g.:"
+    echo "  FM27_DIR=\"/path/to/Football Manager 27\" ./mac/dev.sh setup"
     exit 1
   fi
+  [ -n "$BEPINEX" ] || BEPINEX="$GAME/FM27-BepInEx/BepInEx"
+  echo "FM27: $GAME"
 }
 
 need_bepinex() {
+  need_game
   if [ ! -d "$BEPINEX/core" ]; then
     echo "BepInEx was not found at: $BEPINEX"
     echo "Install the FM27 macOS BepInEx package first (see mac/README.md), launch FM27 once, then retry."
@@ -130,5 +178,6 @@ case "${1:-}" in
   install) cmd_install ;;
   logs) cmd_logs ;;
   health) cmd_health ;;
+  where) need_game; echo "BepInEx: $BEPINEX" ;;
   *) sed -n '2,13p' "$0"; exit 1 ;;
 esac
