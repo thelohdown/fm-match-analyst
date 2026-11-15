@@ -33,13 +33,15 @@ export type SourceInfo = {
   kind: "live" | "archive"
   /** live: FMMatchLens's status (live, ended, interrupted); archive: file name. */
   detail: string
+  /** live only: the API is ./mac/dev.sh serve replaying this saved match, not the game. */
+  replayOf?: string
 }
 
-const round = (value: number, digits = 2) => {
+export const round = (value: number, digits = 2) => {
   const factor = 10 ** digits
   return Math.round(value * factor) / factor
 }
-const pct = (part: number, whole: number) => (whole > 0 ? Math.round((part / whole) * 100) : null)
+export const pct = (part: number, whole: number) => (whole > 0 ? Math.round((part / whole) * 100) : null)
 
 export function teamName(model: MatchModel, side: Side): string {
   return model.metadata?.[side]?.name ?? (side === "home" ? "Home" : "Away")
@@ -82,12 +84,12 @@ export function resolveSides(model: MatchModel, choice: TeamChoice | undefined):
   }
 }
 
-function eventTime(model: MatchModel, tick: number) {
+export function eventTime(model: MatchModel, tick: number) {
   const { period, seconds } = model.clockAtTick(tick)
   return { minute: minuteLabel(seconds, period), period }
 }
 
-function sideLabel(model: MatchModel, side: Side): string {
+export function sideLabel(model: MatchModel, side: Side): string {
   const user = model.userSide()
   return user === side ? `${teamName(model, side)} (you)` : teamName(model, side)
 }
@@ -107,7 +109,7 @@ function areaLabel(depth: number, width: number): string {
   return `${third}, ${channel}`
 }
 
-function shotLocation(model: MatchModel, event: { team: Side; x: number; y: number }) {
+export function shotLocation(model: MatchModel, event: { team: Side; x: number; y: number }) {
   const { depth, width } = eventPoint(event)
   const fromGoalLine = ((100 - depth) / 100) * model.halfLength * 2
   const fromCentre = ((width - 50) / 100) * model.halfWidth * 2
@@ -122,7 +124,7 @@ function shotLocation(model: MatchModel, event: { team: Side; x: number; y: numb
   return { where: `${area}, ${channel}`, distanceM: Math.round(distance) }
 }
 
-const SHOT_OUTCOME: Record<string, string> = {
+export const SHOT_OUTCOME: Record<string, string> = {
   goals: "goal",
   shotsOnTarget: "saved",
   shotsOffTarget: "off target",
@@ -173,7 +175,7 @@ export function playerRoles(model: MatchModel, playerId: number) {
   return { inPossession: roles.inPossession, outOfPossession: roles.outOfPossession }
 }
 
-function roleText(model: MatchModel, playerId: number): string | undefined {
+export function roleText(model: MatchModel, playerId: number): string | undefined {
   const roles = playerRoles(model, playerId)
   if (!roles) return undefined
   const ip = assignmentLabel(roles.inPossession)
@@ -215,7 +217,7 @@ export function attributeSheet(model: MatchModel, playerId: number) {
 }
 
 /** A few attributes that matter for a quick substitution call. */
-function quickAttributes(model: MatchModel, playerId: number): string | undefined {
+export function quickAttributes(model: MatchModel, playerId: number): string | undefined {
   const attributes = playerMeta(model, playerId)?.attributes
   if (!attributes) return undefined
   const pick = (values: Record<string, number> | undefined, name: string) => (values?.[name] ? `${name} ${toTwenty(values[name])}` : undefined)
@@ -243,10 +245,7 @@ type PlayerPosition = {
 }
 
 function orientationFor(model: MatchModel, period: number, side: Side): 1 | -1 | undefined {
-  const own = model.orientation(period, side)
-  if (own) return own
-  const opponent = model.orientation(period, other(side))
-  return opponent ? (opponent === 1 ? -1 : 1) : undefined
+  return model.direction(period, side)
 }
 
 /** Average positions (percent of pitch length from own goal, of width from the left touchline). */
@@ -373,11 +372,11 @@ function territory(model: MatchModel, buckets: readonly Bucket[], side: Side) {
 // ---------------------------------------------------------------------------
 // Windows
 
-function tickRange(selection: WindowSelection) {
+export function tickRange(selection: WindowSelection) {
   return { from: selection.buckets[0].startTick, to: selection.buckets.at(-1)!.endTick }
 }
 
-function windowInfo(model: MatchModel, selection: WindowSelection) {
+export function windowInfo(model: MatchModel, selection: WindowSelection) {
   const first = selection.buckets[0]
   const last = selection.buckets.at(-1)!
   return {
@@ -392,7 +391,7 @@ function inWindow(selection: WindowSelection, tick: number) {
   return tick >= range.from && tick <= range.to
 }
 
-const teamDiff = (selection: WindowSelection, side: Side, name: (typeof TEAM_COUNTERS)[number]) => {
+export const teamDiff = (selection: WindowSelection, side: Side, name: (typeof TEAM_COUNTERS)[number]) => {
   const index = teamCounterIndex(name)
   return selection.end.team[side][index] - (selection.start?.team[side][index] ?? 0)
 }
@@ -431,7 +430,11 @@ export function matchState(model: MatchModel, source: SourceInfo) {
   }
   const finished = source.kind === "archive" || source.detail === "ended"
   return {
-    source: source.kind === "live" ? `live from FMMatchLens (${source.detail})` : `archive ${source.detail}`,
+    source: source.replayOf
+      ? `replay of the saved match ${source.replayOf} from ./mac/dev.sh serve (${source.detail}), not the game`
+      : source.kind === "live"
+        ? `live from FMMatchLens (${source.detail})`
+        : `archive ${source.detail}`,
     status: finished ? "full time" : source.detail === "interrupted" ? "capture interrupted" : "in play or paused",
     competition: model.metadata?.competition?.name,
     date: model.metadata?.matchDate,
@@ -988,7 +991,7 @@ export function tactic(model: MatchModel, choice: TeamChoice | undefined) {
 }
 
 /** What changed in a team's tactic during the match, from one sampled version to the next. */
-function tacticChanges(model: MatchModel, side: Side) {
+export function tacticChanges(model: MatchModel, side: Side) {
   const versions = model.tacticVersions.filter((version) => version.side === side)
   const changes: Array<{ minute: string; changed: string[] }> = []
   for (let index = 1; index < versions.length; index++) {
@@ -1017,7 +1020,7 @@ function tacticChanges(model: MatchModel, side: Side) {
   return changes.length > 0 ? changes : undefined
 }
 
-function mentalityName(config: TacticalConfiguration): string {
+export function mentalityName(config: TacticalConfiguration): string {
   const names = ["none", "very defensive", "defensive", "cautious", "balanced", "positive", "attacking", "very attacking"]
   return names[config.mentality] ?? `mentality ${config.mentality}`
 }
@@ -1030,192 +1033,5 @@ function teamInstructionNames(config: TacticalConfiguration): string[] {
       .map(humanize)
   } catch {
     return []
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Briefing: the whole picture in one call
-
-/**
- * Everything a pause-and-ask needs, from the user's side where known: the state,
- * the last 15 minutes against the rest of the half, who is tiring or fading, the
- * danger, both tactics and recent changes, shape, and recent events.
- */
-export function briefing(model: MatchModel, source: SourceInfo, check: { ok: boolean; problems: string[] }) {
-  const state = matchState(model, source)
-  const user = model.userSide()
-  const sides: Side[] = user ? [user, other(user)] : ["home", "away"]
-  const label = (side: Side) => sideLabel(model, side)
-  const history = model.history()
-
-  // The last 15 minutes against the rest of the current half (or the previous half
-  // when this one has barely started).
-  const count = model.buckets.length
-  const lastStart = Math.max(0, count - 15)
-  const recent = model.selectIndices(lastStart, count - 1, "last 15 minutes")
-  const currentPeriod = model.buckets.at(-1)?.period ?? 1
-  const periodStart = model.buckets.findIndex((bucket) => bucket.period === currentPeriod)
-  let earlier: WindowSelection | undefined
-  if (lastStart - periodStart >= 10) earlier = model.selectIndices(periodStart, lastStart - 1, "earlier in this half")
-  else {
-    const previous = model.buckets.map((bucket, index) => ({ bucket, index })).filter(({ bucket, index }) => bucket.period === currentPeriod - 1 && index < lastStart)
-    if (previous.length >= 10) earlier = model.selectIndices(previous[0].index, previous.at(-1)!.index, "previous half")
-  }
-  const compact = (selection: WindowSelection | undefined, side: Side) => {
-    if (!selection) return undefined
-    const d = (name: (typeof TEAM_COUNTERS)[number]) => teamDiff(selection, side, name)
-    const own = d("possessionTime")
-    const theirs = teamDiff(selection, other(side), "possessionTime")
-    return {
-      goals: d("goals"),
-      xg: round(d("xg")),
-      shots: `${d("shotsOnTarget")}/${d("shots")} on target`,
-      possessionPct: pct(own, own + theirs),
-      ballInAttackingThirdPct: territory(model, selection.buckets, side)?.attackingThirdPct,
-      passCompletionPct: pct(d("passesCompleted"), d("passes")),
-      progressivePasses: d("progressivePasses"),
-    }
-  }
-  const comparison = Object.fromEntries(
-    sides.map((side) => [
-      label(side),
-      {
-        [recent ? `last 15 (${windowInfo(model, recent).from}-${windowInfo(model, recent).to})` : "last 15"]: compact(recent, side),
-        [earlier ? `${earlier.label} (${windowInfo(model, earlier).from}-${windowInfo(model, earlier).to})` : "earlier"]: compact(earlier, side),
-      },
-    ])
-  )
-
-  // Players: tiring, fading, struggling, standing out.
-  const twenty = model.selectIndices(Math.max(0, count - 20), count - 1, "last 20 minutes")
-  const end = model.endState()
-  const people = (side: Side) => {
-    const rows: Array<{ name: string; role?: string; condition?: number; conditionChange?: number; rating: number; ratingChange20?: number }> = []
-    for (const [playerId, player] of end?.players ?? []) {
-      if (player.team !== side || !player.onPitch) continue
-      const start = twenty?.start?.players.get(playerId)
-      rows.push({
-        name: playerName(model, playerId) ?? `player ${playerId}`,
-        role: roleText(model, playerId)?.split(";")[0],
-        condition: player.condition || undefined,
-        conditionChange: start && start.condition ? player.condition - start.condition : undefined,
-        rating: round(player.rating, 1),
-        ratingChange20: start && start.rating ? round(player.rating - start.rating, 1) : undefined,
-      })
-    }
-    const tiring = rows.filter((row) => row.condition != null && row.condition < 75).sort((left, right) => (left.condition ?? 100) - (right.condition ?? 100))
-    const fading = rows.filter((row) => (row.ratingChange20 ?? 0) <= -0.3).sort((left, right) => (left.ratingChange20 ?? 0) - (right.ratingChange20 ?? 0))
-    const struggling = rows.filter((row) => row.rating > 0 && row.rating < 6.4).sort((left, right) => left.rating - right.rating)
-    const standouts = [...rows].sort((left, right) => right.rating - left.rating).slice(0, 2)
-    return { tiring, fading, struggling, standouts }
-  }
-
-  // Each team's shots in the last 20 minutes, and where it has been losing the ball lately.
-  const twentyRange = twenty ? tickRange(twenty) : undefined
-  const fifteenRange = recent ? tickRange(recent) : undefined
-  const shotsAgainst = (side: Side) =>
-    (history.xgShots as readonly XgShotPoint[])
-      .filter((shot) => shot.team === side && twentyRange && shot.tick >= twentyRange.from && shot.tick <= twentyRange.to)
-      .map((shot) => ({
-        minute: eventTime(model, shot.tick).minute,
-        player: playerName(model, shot.playerId),
-        xg: round(shot.xg),
-        outcome: SHOT_OUTCOME[shot.metricId] ?? shot.metricId,
-        where: shotLocation(model, shot).where,
-      }))
-  const lostRecently = (side: Side) => {
-    const counts: Record<string, number> = {}
-    for (const event of history.tacticalEvents as readonly TacticalEventPoint[]) {
-      if (event.team !== side || event.metricId !== "possessionLost" || !fifteenRange || event.tick < fifteenRange.from || event.tick > fifteenRange.to) continue
-      const { depth, width } = eventPoint(event)
-      const area = areaLabel(depth, width)
-      counts[area] = (counts[area] ?? 0) + 1
-    }
-    return Object.entries(counts)
-      .sort((left, right) => right[1] - left[1])
-      .slice(0, 3)
-      .map(([area, times]) => `${area} (${times})`)
-  }
-
-  // Shape: out of possession lately against earlier.
-  const shapeOf = (selection: WindowSelection | undefined, side: Side) => {
-    if (!selection) return undefined
-    const summary = shapeSummary(model, selection.buckets, side)
-    return {
-      outOfPossession: summary.outOfPossession && { defensiveLineM: summary.outOfPossession.defensiveLineM, lengthM: summary.outOfPossession.lengthM, widthM: summary.outOfPossession.widthM },
-      inPossession: summary.inPossession && { highestPlayersM: summary.inPossession.highestPlayersM, widthM: summary.inPossession.widthM },
-    }
-  }
-
-  // Tactics, briefly.
-  let tactics: Record<string, unknown> | string = "not captured for this match; ask the user for their setup if it matters"
-  if (model.tactics) {
-    try {
-      const decoded = decodeTacticalSnapshot(model.tactics)
-      tactics = Object.fromEntries(
-        sides.map((side) => {
-          const config = decoded[side].processing ?? decoded[side].command
-          const changes = tacticChanges(model, side)?.slice(-3)
-          return [
-            label(side),
-            config
-              ? {
-                  name: config.style.configurationName || undefined,
-                  mentality: humanize(config.mentality.name),
-                  formations: `${config.inPossession.formation.displayName} in possession, ${config.outOfPossession.formation.displayName} out of possession`,
-                  recentChanges: changes,
-                }
-              : "not captured",
-          ]
-        })
-      )
-    } catch {
-      tactics = "captured but could not be decoded"
-    }
-  }
-
-  const lastTen = (events(model, ["goals", "cards", "subs", "chances"], "both", { lastMinutes: 10 }, 50).events ?? []) as Array<Record<string, unknown>>
-
-  // The bench: who could come on, with what FM shows about them.
-  const benchSides: Side[] = user ? [user] : ["home", "away"]
-  const bench = Object.fromEntries(
-    benchSides.map((side) => {
-      const rows: Array<Record<string, unknown>> = []
-      for (const [playerId, player] of end?.players ?? []) {
-        const appearance = model.appearances.get(playerId)
-        if (player.team !== side || player.onPitch || appearance?.startedOnPitch || appearance?.onTick != null) continue
-        rows.push({
-          name: playerName(model, playerId),
-          naturalPositions: naturalPositions(model, playerId),
-          condition: player.condition || undefined,
-          sharpness: player.sharpness || undefined,
-          attributes: quickAttributes(model, playerId) || undefined,
-        })
-      }
-      return [label(side), rows]
-    })
-  )
-
-  return {
-    match: state.score,
-    clock: state.clock,
-    minute: state.minute,
-    period: state.period,
-    status: state.status,
-    youManage: state.youManage,
-    dataCheck: check.ok ? "passed" : check.problems,
-    howItsGoing: comparison,
-    momentum: state.momentum.last10Minutes ?? state.momentum.last5Minutes,
-    players: Object.fromEntries(sides.map((side) => [label(side), people(side)])),
-    chancesAndTurnovers: Object.fromEntries(
-      sides.map((side) => [label(side), { shotsLast20Minutes: shotsAgainst(side), ballLostMostLately: lostRecently(side) }])
-    ),
-    shape: Object.fromEntries(sides.map((side) => [label(side), { lately: shapeOf(recent, side), earlier: shapeOf(earlier, side) }])),
-    tactics,
-    lastTenMinutes: lastTen,
-    bench,
-    substitutionsMade: Object.fromEntries(sides.map((side) => [label(side), state.substitutions.filter((sub) => sub.team === teamName(model, side)).length])),
-    legend:
-      "Shape in metres from the team's own goal line; condition is physical condition %, ratingChange20 the change over the last 20 minutes. Use get_players, get_events, get_shape or get_tactic for detail.",
   }
 }

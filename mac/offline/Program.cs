@@ -456,7 +456,7 @@ internal static class ArchiveServer
         var archives = new FMMatchLens.Plugin.Services.MatchArchiveStore(Path.Combine(work, "matches"));
         var graphics = new FMMatchLens.Plugin.Services.GraphicsAssetIndex(Path.Combine(work, "graphics"), Path.Combine(work, "graphics.json"));
         var timeline = new FMMatchLens.Plugin.Services.RealtimeMatchTimeline(archives, graphics);
-        var server = new FMMatchLens.Plugin.Services.LocalApiServer(timeline, archives, graphics);
+        var server = new FMMatchLens.Plugin.Services.LocalApiServer(timeline, archives, graphics) { ReplayOf = Path.GetFileName(path) };
         server.Start();
         const nint source = 0x1000;
         timeline.Begin(source);

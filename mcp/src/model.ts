@@ -5,7 +5,9 @@
 //     time window is the difference of two of them,
 //   - player positions sampled once a second, summed per minute and per phase
 //     (in or out of possession), plus team-shape figures per sample,
-//   - when each player came on or went off.
+//   - when each player came on or went off,
+//   - possession spells and once-a-second shape samples for the phases of play
+//     (see phases.ts).
 // Positions are summed in raw pitch coordinates and turned into each team's own
 // frame of reference (own goal to opponent goal, left to right) when asked,
 // because which end a team defends is only known once its goalkeeper has been
@@ -22,6 +24,7 @@ import { TacticalWireState } from "@/components/formation/tactics"
 import type { TacticalConfiguration, TacticalSnapshot } from "@/types/match"
 
 import { minuteNumber, periodEndMinute, periodStartSeconds, TICKS_PER_SECOND } from "./clock"
+import { PossessionTracker, type ShapeSample, shapeSlot, shapeValues, SHAPE_VALUE_FIELDS } from "./phases"
 
 export type Side = "home" | "away"
 export const SIDES: readonly Side[] = ["home", "away"]
@@ -177,6 +180,8 @@ export class MatchModel {
   /** The latest tactic snapshot FMMatchLens captured (sampled about once a game minute). */
   tactics?: TacticalSnapshot
   readonly tacticVersions: TacticVersion[] = []
+  readonly possession = new PossessionTracker()
+  readonly shapeSamples: ShapeSample[] = []
   lastClockSeconds = 0
   frameCount = 0
   halfLength = 52.5
@@ -248,6 +253,7 @@ export class MatchModel {
       }
       this.current.endSeconds = clock
       this.current.endTick = frame.tick
+      this.possession.observe(frame, this.halfLength, this.halfWidth)
       if (frame.tick % POSITION_SAMPLE_EVERY_TICKS === 0 && frame.possessionTeam != null) {
         this.samplePositions(this.current, frame)
       }
@@ -354,11 +360,13 @@ export class MatchModel {
   }
 
   private samplePositions(bucket: Bucket, frame: RealtimeFrame) {
+    const holder = frame.possessionTeam
+    if (holder == null) return
     const byTeam: Record<Side, RealtimePlayer[]> = { home: [], away: [] }
     for (const player of frame.players) {
       if (!player.isOnPitch || !Number.isFinite(player.x) || !Number.isFinite(player.y)) continue
       byTeam[player.team].push(player)
-      const inPossession = frame.possessionTeam === player.team
+      const inPossession = holder === player.team
       let sums = bucket.positions.get(player.playerId)
       if (!sums) {
         sums = new Float64Array(6)
@@ -369,39 +377,38 @@ export class MatchModel {
       sums[base + 1] += player.x
       sums[base + 2] += player.y
     }
+    const ballX = frame.ballXCentimeters / 100
+    const ballY = frame.ballYCentimeters / 100
+    const previous = this.shapeSamples.at(-1)
+    const sample: ShapeSample = {
+      tick: frame.tick,
+      period: frame.period,
+      possession: holder,
+      ballX,
+      ballY,
+      still: previous != null && frame.tick - previous.tick <= POSITION_SAMPLE_EVERY_TICKS && Math.hypot(ballX - previous.ballX, ballY - previous.ballY) < 0.25,
+      values: new Float32Array(4 * SHAPE_VALUE_FIELDS.length).fill(Number.NaN),
+    }
     for (const side of SIDES) {
-      const phase = frame.possessionTeam === side ? 0 : 1
+      const phase = holder === side ? 0 : 1
       for (const orientation of [1, -1] as const) {
-        this.sampleShape(bucket.shape[side], phase, orientation, byTeam[side])
+        const values = shapeValues(byTeam[side], orientation, this.halfLength, this.halfWidth)
+        if (!values) continue
+        // Per-minute sums: [n, defensive line, highest, length, width, centroid].
+        const target = bucket.shape[side]
+        const base = shapeIndex(phase, orientation)
+        target[base] += 1
+        values.forEach((value, field) => {
+          target[base + 1 + field] += value
+        })
+        sample.values.set(values, shapeSlot(side, orientation))
       }
     }
-    const ballY = frame.ballYCentimeters / 100
+    if (Number.isFinite(ballX) && Number.isFinite(ballY)) this.shapeSamples.push(sample)
     if (Number.isFinite(ballY)) {
       const third = this.halfLength / 3
       bucket.ballThirds[ballY < -third ? 0 : ballY > third ? 2 : 1] += 1
     }
-  }
-
-  private sampleShape(target: Float64Array, phase: number, orientation: 1 | -1, players: RealtimePlayer[]) {
-    if (players.length < 8) return
-    const L = this.halfLength
-    const W = this.halfWidth
-    // Depth from the team's own goal line and distance from its left touchline, in metres.
-    const points = players
-      .map((player) => ({ depth: orientation * player.y + L, lateral: orientation * player.x + W }))
-      .sort((left, right) => left.depth - right.depth)
-    const outfield = points.slice(1) // the deepest player is taken to be the goalkeeper
-    const deepest = outfield.slice(0, 4)
-    const highest = outfield.slice(-2)
-    const mean = (values: number[]) => values.reduce((sum, value) => sum + value, 0) / values.length
-    const laterals = outfield.map((point) => point.lateral)
-    const base = shapeIndex(phase, orientation)
-    target[base] += 1
-    target[base + 1] += mean(deepest.map((point) => point.depth))
-    target[base + 2] += mean(highest.map((point) => point.depth))
-    target[base + 3] += outfield.at(-1)!.depth - outfield[0].depth
-    target[base + 4] += Math.max(...laterals) - Math.min(...laterals)
-    target[base + 5] += mean(outfield.map((point) => point.depth))
   }
 
   private trackAppearances(frame: RealtimeFrame) {
@@ -451,6 +458,14 @@ export class MatchModel {
     const result = best && Math.abs(best.meanY) > this.halfLength * 0.4 ? (best.meanY < 0 ? 1 : -1) : undefined
     if (closed) this.orientationCache.set(key, result)
     return result
+  }
+
+  /** Playing direction of a team, falling back to the opposite of the other team's. */
+  direction(period: number, side: Side): 1 | -1 | undefined {
+    const own = this.orientation(period, side)
+    if (own) return own
+    const opponent = this.orientation(period, other(side))
+    return opponent ? (opponent === 1 ? -1 : 1) : undefined
   }
 
   teamOf(playerId: number): Side | undefined {

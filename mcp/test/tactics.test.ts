@@ -9,6 +9,8 @@ import { parseArchiveFile } from "@/api/archiveParser"
 import type { TacticalSnapshot } from "@/types/match"
 
 import { MatchModel } from "../src/model"
+import { PhaseContext } from "../src/phases"
+import { planVsReality, windowPhases } from "../src/phaseViews"
 import * as views from "../src/views"
 
 const archive = process.env.FM_ANALYST_TEST_ARCHIVE ?? "../local/archives/2025-12-30-Chicago-vs-LAFC-1-0.fmlens"
@@ -53,6 +55,17 @@ describe.skipIf(!existsSync(archive))("tactics captured on macOS", () => {
     expect(chicago.players[0].inPossession).toBe("GK Goalkeeper (Defend)")
     expect(chicago.players.at(-1).inPossession).toBe("ST Channel Forward (Attack)")
     expect(chicago.changes).toEqual([{ minute: expect.stringMatching(/^6[12]'$/), changed: ["mentality balanced -> positive"] }])
+  })
+
+  it("checks the team instructions against what happened", () => {
+    const context = new PhaseContext(model)
+    const whole = windowPhases(context, model.select({})!)
+    const recent = windowPhases(context, model.select({ lastMinutes: 15 })!)
+    const checks = planVsReality(model, "home", whole, recent)!
+    const instructions = checks.map((check) => check.instruction)
+    expect(instructions).toEqual(expect.arrayContaining(["focus play down both flanks", "line of engagement mid", "pressing intensity higher", "work ball into box"]))
+    const flanks = checks.find((check) => check.instruction === "focus play down both flanks")!
+    expect(flanks.onThePitch).toMatch(/^\d+ of \d+ final-third entries down the flanks this match; .* in the last 15 minutes$/)
   })
 
   it("names each player's position and role instead of inferring a zone", () => {

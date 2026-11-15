@@ -3,6 +3,7 @@
 import { existsSync } from "node:fs"
 import { beforeAll, describe, expect, it } from "vitest"
 
+import { briefing } from "../src/briefing"
 import type { MatchModel } from "../src/model"
 import { loadArchive } from "../src/sources"
 import * as views from "../src/views"
@@ -37,7 +38,7 @@ describe.skipIf(!existsSync(archive))("attributes", () => {
   })
 
   it("lists the bench with what matters for a substitution", () => {
-    const result = views.briefing(model, { kind: "archive", detail: "test" }, { ok: true, problems: [] }) as Record<string, any>
+    const result = briefing(model, { kind: "archive", detail: "test" }, { ok: true, problems: [] }) as Record<string, any>
     const bench = result.bench.Chicago as Array<Record<string, unknown>>
     expect(bench.length).toBeGreaterThan(0)
     expect(bench[0]).toMatchObject({ naturalPositions: "DL, WBL (accomplished)", attributes: "Pace 17, Acceleration 16, Stamina 18, Work Rate 18, Decisions 12" })

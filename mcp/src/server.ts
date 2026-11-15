@@ -6,10 +6,12 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import * as z from "zod"
 
 import guide from "../analyst/fm-analyst.md"
+import { briefing } from "./briefing"
 import { checkData, dataWarning } from "./checks"
 import { saveFeedback } from "./feedback"
 import { clockLabel } from "./clock"
 import type { MatchModel } from "./model"
+import { phaseReport } from "./phaseViews"
 import { DEFAULT_API, findArchive, listArchives, LiveSource, loadArchive, type ArchiveEntry } from "./sources"
 import * as views from "./views"
 
@@ -44,7 +46,13 @@ export function createServer(options: { apiUrl?: string; startLive?: boolean } =
           )}. Ask again shortly for the rest.`
         )
       }
-      return { model: live.model, source: { kind: "live", detail: live.status?.status ?? "unknown" }, notes }
+      if (live.replayOf) {
+        notes.unshift(
+          `This is NOT the match in FM: FMMatchLens's API is ./mac/dev.sh serve replaying the saved match ${live.replayOf}. ` +
+            "Tell the user; to analyse the game, stop the replay (Ctrl+C in its terminal) and start or resume the match in FM."
+        )
+      }
+      return { model: live.model, source: { kind: "live", detail: live.status?.status ?? "unknown", replayOf: live.replayOf }, notes }
     }
     if (selection.kind === "live") {
       return { error: live.lastError ?? "FMMatchLens has not captured a match yet. Start a match in FM; capture begins at kickoff." }
@@ -118,11 +126,37 @@ export function createServer(options: { apiUrl?: string; startLive?: boolean } =
     {
       title: "Briefing",
       description:
-        "The whole picture in one call, best for 'what should I do?' or a half-time talk: score and clock, the last 15 minutes against earlier in the half for both teams (xG, shots, possession, territory, passing), momentum, who is tiring, fading, struggling or standing out, the danger (shots in the last 20 minutes, where the ball is being lost), shape lately against earlier, both tactics with recent changes, the last 10 minutes' events and substitutions made. Follow up with the other tools for detail.",
+        "Start here for 'what should I do?' or a half-time talk. The whole picture in one call, organised by the moments of the game: " +
+        "game state (score, time left, momentum, mentalities); what stands out (problems and what is working, measured against the opponent and earlier); " +
+        "in possession (build-up/progression/final-third time, how often possessions reach the final third and box and through which channel, chance quality, crossing, passing); " +
+        "out of possession (block and line height, where the opponent gets in, pressing, duels); transitions (regains, fast breaks, losses, counter-pressing, " +
+        "shots within 15 s either way); set pieces; whether the tactic's team instructions are happening; shots in the last 20 minutes with how each came about; " +
+        "who is tiring, fading, struggling or standing out; tactics with recent changes; the bench; the last 10 minutes' events. The last 15 minutes are set against earlier in the half for both teams.",
       inputSchema: {},
       annotations: readOnly,
     },
-    async () => withMatch(({ model, source }) => views.briefing(model, source, checkData(model)))
+    async () => withMatch(({ model, source }) => briefing(model, source, checkData(model)))
+  )
+
+  server.registerTool(
+    "get_phases",
+    {
+      title: "Phases of play",
+      description:
+        "The moments of the game for any stretch of play: in possession (time in build-up, progression and final third; possessions reaching the final third and box; " +
+        "final-third entries by channel; shots by quality; crossing; long passing; width), out of possession (block and defensive line height for each opponent phase, " +
+        "compactness, where the opponent reaches the final third against your flanks, box entries conceded, pressing, tackles and aerials), transitions " +
+        "(open-play regains, fast breaks, losses per 10 minutes on the ball, losses in your own third, won back within 5 s, shots within 15 s either way) and set pieces.",
+      inputSchema: { team, ...windowFields },
+      annotations: readOnly,
+    },
+    async (args) =>
+      withMatch(({ model }) => {
+        const selection = model.select(toWindow(args))
+        if (!selection) return { error: "No match data in that window yet." }
+        const { sides, note } = views.resolveSides(model, args.team)
+        return phaseReport(model, sides, selection, note)
+      })
   )
 
   server.registerTool(
@@ -294,9 +328,9 @@ export function createServer(options: { apiUrl?: string; startLive?: boolean } =
           content: {
             type: "text",
             text:
-              "Give me a briefing on my match as it stands (start with get_briefing): what is working, what is not " +
-              "(compare halves or the last 15 minutes), who is tiring or struggling, and two or three concrete changes with the evidence for each " +
-              "and what to watch afterwards.",
+              "Give me a briefing on my match as it stands (start with get_briefing): go through each moment of the game (in possession, out of possession, " +
+              "transitions, set pieces) in the light of the score and time left, say what is working and what is not, who is tiring or struggling, " +
+              "and give two or three concrete changes with the evidence for each and what to watch afterwards.",
           },
         },
       ],
@@ -339,8 +373,9 @@ export function createServer(options: { apiUrl?: string; startLive?: boolean } =
             type: "text",
             text:
               (match ? `Load the match "${match}" with load_match, then review` : "Review") +
-              " the match: how the game went in 15-minute phases, the chances each side made, which players stood out or struggled, " +
-              "how each team's shape held up, and the two or three lessons for the next match.",
+              " the match moment by moment: in possession, out of possession, transitions and set pieces for both teams (get_phases by half), " +
+              "how the game swung (get_team_stats per 15 minutes), the chances each side made and how they came about, which players stood out or struggled, " +
+              "and the two or three lessons for the next match.",
           },
         },
       ],

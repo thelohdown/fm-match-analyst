@@ -4,6 +4,7 @@
 import { existsSync } from "node:fs"
 import { beforeAll, describe, expect, it } from "vitest"
 
+import { briefing } from "../src/briefing"
 import type { MatchModel } from "../src/model"
 import { loadArchive } from "../src/sources"
 import * as views from "../src/views"
@@ -63,16 +64,23 @@ describe.skipIf(!present)("Chicago 1-0 LAFC archive", () => {
 })
 
 describe.skipIf(!present)("briefing", () => {
-  it("compares the last 15 minutes with earlier in the half and lists who is tiring", async () => {
+  it("goes moment by moment, last 15 minutes against earlier in the half, and lists who is tiring", async () => {
     const model = await loadArchive({ file: "2025-12-30-Chicago-vs-LAFC-1-0.fmlens", path: archive, finished: true, modified: "test", sizeKb: 0 })
-    const result = views.briefing(model, { kind: "archive", detail: "test" }, { ok: true, problems: [] }) as Record<string, any>
+    const result = briefing(model, { kind: "archive", detail: "test" }, { ok: true, problems: [] }) as Record<string, any>
     expect(result.dataCheck).toBe("passed")
-    const chicago = result.howItsGoing.Chicago
-    expect(Object.keys(chicago)).toEqual(["last 15 (78:00-90+2:37)", "earlier in this half (45:00-77:59)"])
+    expect(result.gameState).toMatchObject({ score: "Chicago 1-0 LAFC", minutesLeftInNormalTime: 0 })
+    for (const moment of ["inPossession", "outOfPossession", "transitions"]) {
+      expect(Object.keys(result[moment].Chicago)).toEqual(["last 15 (78:00-90+2:37)", "earlier in this half (45:00-77:59)"])
+    }
+    expect(result.outOfPossession.Chicago["last 15 (78:00-90+2:37)"].block).toMatch(/block$/)
+    expect(result.setPieces.Chicago.corners).toBe(8)
+    // No human manager in this capture, so what stands out is given for both teams.
+    expect(Object.keys(result.standsOut)).toEqual(["Chicago", "LAFC"])
     expect(result.players.Chicago.tiring.map((player: { name: string }) => player.name)).toContain("Jonathan Bamba")
-    expect(result.chancesAndTurnovers.LAFC.shotsLast20Minutes).toEqual([
-      expect.objectContaining({ minute: "84'", player: "Jacob Shaffelburg", xg: 0.27 }),
+    expect(result.shotsLast20Minutes.LAFC).toEqual([
+      expect.objectContaining({ minute: "84'", player: "Jacob Shaffelburg", xg: 0.27, from: "transition" }),
     ])
-    expect(JSON.stringify(result).length).toBeLessThan(8000)
+    expect(JSON.stringify(result)).not.toMatch(/ballLostMostLately|howItsGoing/)
+    expect(JSON.stringify(result).length).toBeLessThan(13000)
   })
 })

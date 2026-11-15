@@ -55,7 +55,11 @@
   "tools": [
     {
       "name": "get_briefing",
-      "description": "The whole picture in one call: last 15 minutes against earlier, who is tiring or fading, chances, shape, tactics, recent events."
+      "description": "The whole picture in one call, by moment of the game: game state, what stands out, in and out of possession, transitions, set pieces, plan against reality, players, bench."
+    },
+    {
+      "name": "get_phases",
+      "description": "In possession, out of possession, transitions and set pieces for any stretch of play."
     },
     {
       "name": "get_match_state",

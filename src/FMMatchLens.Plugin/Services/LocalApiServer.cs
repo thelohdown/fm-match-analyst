@@ -29,6 +29,12 @@ internal sealed class LocalApiServer : IDisposable
     private RealtimeTickFrame? _lastPublishedRealtimeFrame;
     private int _isPublishingRealtime;
 
+    /// <summary>
+    /// Set when the server is replaying a saved match (mac/offline --serve) rather than
+    /// following the game, so clients can tell the user they are not seeing a live match.
+    /// </summary>
+    public string? ReplayOf { get; init; }
+
     public LocalApiServer(
         RealtimeMatchTimeline timeline,
         MatchArchiveStore archives,
@@ -168,7 +174,8 @@ internal sealed class LocalApiServer : IDisposable
                         inMatch = health.MatchId is not null && health.Status == "live",
                         tick = health.LastTick < 0 ? (int?)null : health.LastTick,
                         frameCount = health.FrameCount,
-                        webSocketConnections = _webSockets.ConnectionCount
+                        webSocketConnections = _webSockets.ConnectionCount,
+                        replayOf = ReplayOf
                     }, cancellationToken).ConfigureAwait(false);
                     break;
                 case "/api/match/current":

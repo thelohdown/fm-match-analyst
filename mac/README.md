@@ -41,8 +41,9 @@ points and whenever a match stops for 5 seconds, or on request (`./mac/dev.sh sn
 ### AI analyst (`mcp/`, `./mac/dev.sh mcp`)
 
 `mcp/` is a read-only MCP server that lets Claude or Codex analyse the match from
-FMMatchLens's capture; see `mcp/README.md`. `./mac/dev.sh mcp` opens its Claude
-Desktop bundle; `./mac/dev.sh mcp config` prints the Claude Code and Codex setup.
+FMMatchLens's capture, organised by the moments of the game (in possession, out of
+possession, transitions, set pieces); see `mcp/README.md`. `./mac/dev.sh mcp` opens its
+Claude Desktop bundle; `./mac/dev.sh mcp config` prints the Claude Code and Codex setup.
 
 ### Dashboard without the game (`./mac/dev.sh serve`)
 
@@ -51,7 +52,9 @@ API server, so the dashboard (`./mac/dev.sh dashboard`, in another Terminal tab)
 tried without FM27: `serve` loads the newest archive at once, as if the dashboard were
 opened at full time; `serve 30` replays it at 30x, as if it were open from kickoff;
 `serve FILE.fmlens 1` replays a given archive in real time. FM27 must not be running,
-since both use port 16726.
+since both use port 16726. While it runs, `/api/health` carries `replayOf` with the
+archive's name, so `./mac/dev.sh health` and the AI analyst say it is a replay and not
+the game; stop it with Ctrl+C before playing.
 
 ### Offline check (`mac/offline`)
 

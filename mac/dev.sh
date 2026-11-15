@@ -382,11 +382,18 @@ cmd_serve() {
     ''|*[!0-9]*) echo "speed must be a whole number: 0 for all at once, 1 for real time, 30 for 30x"; exit 1 ;;
   esac
   fps=$((speed * 4))
-  if curl -s --max-time 2 "$API" >/dev/null 2>&1; then
-    echo "Something already answers on 127.0.0.1:16726, probably FM27 with the plugin. Quit it first."
+  local running
+  if running="$(curl -s --max-time 2 "$API" 2>/dev/null)"; then
+    case "$running" in
+      *'"replayOf":"'*) echo "A replay is already running on 127.0.0.1:16726. Stop it with Ctrl+C in its Terminal tab first." ;;
+      *) echo "Something already answers on 127.0.0.1:16726, probably FM27 with the plugin. Quit it first." ;;
+    esac
     exit 1
   fi
-  [ -f "$PLUGIN_DLL" ] || cmd_build
+  # The replay tool runs the plugin's own code, so rebuild the plugin if its source changed.
+  if [ ! -f "$PLUGIN_DLL" ] || [ -n "$(find "$REPO/src/FMMatchLens.Plugin" -name '*.cs' -newer "$PLUGIN_DLL" -print -quit)" ]; then
+    cmd_build
+  fi
   "$dotnet" build "$REPO/mac/offline" -nologo -v q
   tool="$REPO/mac/offline/bin/Debug/net8.0/FMMatchLens.MacOffline.dll"
   echo "Open the dashboard in another Terminal tab with ./mac/dev.sh dashboard."
@@ -461,7 +468,16 @@ cmd_mcp() {
 }
 
 cmd_health() {
-  curl -sS --max-time 3 "$API" && echo || echo "No answer from $API (is FM27 running with the plugin loaded?)"
+  local body replay
+  if ! body="$(curl -sS --max-time 3 "$API")"; then
+    echo "No answer from $API (is FM27 running with the plugin loaded?)"
+    return
+  fi
+  echo "$body"
+  replay="$(printf '%s' "$body" | sed -n 's/.*"replayOf":"\([^"]*\)".*/\1/p')"
+  if [ -n "$replay" ]; then
+    echo "This is ./mac/dev.sh serve replaying $replay, not the game. Stop it with Ctrl+C in its Terminal tab."
+  fi
 }
 
 case "${1:-}" in

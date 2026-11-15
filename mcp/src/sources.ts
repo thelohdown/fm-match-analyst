@@ -22,6 +22,12 @@ type ApiStatus = {
   period?: number | null
 }
 
+type ApiHealth = {
+  status: string
+  /** Set by ./mac/dev.sh serve: the archive being replayed instead of the game. */
+  replayOf?: string | null
+}
+
 type FrameSlice = {
   matchId?: string | null
   status: string
@@ -40,6 +46,8 @@ export class LiveSource {
   model?: MatchModel
   status?: ApiStatus
   lastError?: string
+  /** The saved match being replayed by ./mac/dev.sh serve, when the API is the replay tool and not the game. */
+  replayOf?: string
   private syncing?: Promise<void>
   private metadataFetchedAt = 0
   private timer?: NodeJS.Timeout
@@ -100,6 +108,8 @@ export class LiveSource {
     }
     const model = this.model
     if (Date.now() - this.metadataFetchedAt > 15_000 || !model.metadata) {
+      const health = await getJson<ApiHealth>(`${this.baseUrl}/api/health`, 2000).catch(() => undefined)
+      if (health) this.replayOf = health.replayOf || undefined
       const metadata = await getJson<RealtimeMatchMetadata | null>(`${this.baseUrl}/api/match/meta`, 5000).catch(() => null)
       if (metadata && metadata.matchId === model.matchId) {
         model.setMetadata(metadata)

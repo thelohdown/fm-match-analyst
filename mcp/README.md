@@ -39,20 +39,24 @@ tool_timeout_sec = 90
 ## Use
 
 With FM27 running (BepInEx and the FMMatchLens plugin installed) and a match on,
-ask in a chat. The server's instructions tell the model how to work: start with
-the match state, cite numbers and minutes, suggest only changes FM lets you make.
+ask in a chat. The server's instructions tell the model how to work the way
+match analysts do: frame everything by the game state, go through the moments of
+the game (in possession, out of possession, transitions, set pieces) for both
+teams, compare with the opponent, with earlier and with what the tactic asked
+for, cite numbers and minutes, and suggest only changes FM lets you make.
 There are also three prompts: `half_time_briefing`, `who_to_sub` and
 `match_review`.
 
 Without the game, `./mac/dev.sh serve` replays an archive into the local API (as
-if the match were live), and the server falls back to the newest archive when
-nothing is live.
+if the match were live; the analyst says it is a replay), and the server falls
+back to the newest archive when nothing is live.
 
 ## Tools
 
 | Tool | What it returns |
 | --- | --- |
-| `get_briefing` | Everything for "what should I do?" in one call: the last 15 minutes against earlier in the half, who is tiring, fading, struggling or standing out, each team's recent shots and where it loses the ball, shape lately against earlier, both tactics with recent changes, the last 10 minutes' events, and the bench with condition, sharpness and key attributes |
+| `get_briefing` | Everything for "what should I do?" in one call, by moment of the game: the game state (score, time left, momentum, mentalities); what stands out (problems and what is working, against the opponent and earlier); in possession, out of possession and transitions for both teams, the last 15 minutes against earlier in the half; set pieces; each measurable team instruction against what happened; recent shots with how each came about; who is tiring, fading, struggling or standing out; both tactics with recent changes; the last 10 minutes' events; and the bench with condition, sharpness and key attributes |
+| `get_phases` | The moments of the game for any stretch: in possession (time in build-up, progression and final third; possessions reaching the final third and box; entries by channel; shot quality; crossing; long passing; width), out of possession (block and line height per opponent phase, compactness, where the opponent gets in, box entries conceded, pressing, duels), transitions (open-play regains, fast breaks, losses, losses in your own third, won back within 5 s, shots within 15 s either way) and set pieces |
 | `get_match_state` | Score, clock, which team you manage, xG, shots, possession (match and last 10'), FM's momentum by five minutes and lately, goals, cards, substitutions, data gaps |
 | `get_team_stats` | Per half, per 15 minutes or one window: goals, xG, shots, clear-cut chances, possession, territory by third, passing, crosses, corners, aerials, tackles, fouls, offsides, cards |
 | `get_players` | Per player: position and role (from the tactic, or inferred), natural positions, started/came on/went off, minutes, rating and its change, condition and sharpness and their change, and stats over the window; with `include_attributes`, FM's 1-20 attributes and height (never current or potential ability, which the game does not show) |
@@ -79,6 +83,15 @@ Every tool that covers a stretch of play takes `half` (first, second, extra),
 - On top of that the server keeps cumulative team and player stats at the end of
   every match minute, so any window is a difference of two of them, and samples
   positions once a second for shape and average positions.
+- Possession is followed frame by frame (4 a second) into spells, each labelled
+  as won in open play or given by a restart (the ball out of play, a foul or
+  offside, a kick-off). With the shape samples and the event stream that gives
+  the phases of play: time in build-up, progression and final third, the block
+  and line height for each opponent phase, final-third and box entries by
+  channel, fast breaks, counter-pressing, and shots by how they came about
+  (settled, within 15 s of a regain, set piece). Checked against FM: every shot
+  falls in exactly one phase, and open-play crosses plus corner deliveries add up
+  to FM's crosses.
 - Positions are turned into each team's own point of view: which end a team
   defends in each period comes from where its goalkeeper stands; left and right
   are as the team attacks. Checked on a real match: Chicago's Gutman and Bamba
@@ -109,8 +122,11 @@ Environment: `FMMATCHLENS_API` (default `http://127.0.0.1:16726`),
 
 ## Known gaps
 
-- On macOS FMMatchLens does not capture attributes, morale or season stats yet.
-  Tactics are captured from FM27 27.0.1 on (matches recorded before that have
-  none, and zones are inferred from where players stood).
-- The analyst guidance (`analyst/fm-analyst.md`) is a first draft: it has not
-  been through the blind test of match situations in the product plan.
+- On macOS FMMatchLens does not capture morale or season stats yet. Tactics and
+  attributes are captured from FM27 27.0.1 on (matches recorded before that have
+  neither, and zones are inferred from where players stood).
+- Pressing is measured from events (ppda, high regains), not from how close
+  players get to the ball, so it is a comparison between teams and spells rather
+  than an absolute.
+- The analyst guidance (`analyst/fm-analyst.md`) has not yet been through the
+  blind test of match situations in the product plan.
