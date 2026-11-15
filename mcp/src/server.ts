@@ -8,6 +8,7 @@ import * as z from "zod"
 import guide from "../analyst/fm-analyst.md"
 import { briefing } from "./briefing"
 import { changesReport } from "./changes"
+import { defaultRoleWindow, roleReport } from "./roles"
 import { chanceStories } from "./sequences"
 import { checkData, dataWarning } from "./checks"
 import { saveFeedback } from "./feedback"
@@ -134,7 +135,7 @@ export function createServer(options: { apiUrl?: string; startLive?: boolean } =
         "in possession (build-up/progression/final-third time, how often possessions reach the final third and box and through which channel, chance quality, crossing, passing); " +
         "out of possession (block and line height, where the opponent gets in, pressing, duels); transitions (regains, fast breaks, losses, counter-pressing, " +
         "shots within 15 s either way); set pieces; whether the tactic's team instructions are happening; shots in the last 20 minutes with how each came about; " +
-        "who is tiring, fading, struggling or standing out; tactics with recent changes; whether your latest change is working (before against after); how each goal came about; the bench; the last 10 minutes' events. The last 15 minutes are set against earlier in the half for both teams.",
+        "who is tiring, fading, struggling or standing out; tactics with recent changes; whether your latest change is working (before against after); how each goal came about; roles and player instructions that are clearly not happening; the bench; the last 10 minutes' events. The last 15 minutes are set against earlier in the half for both teams.",
       inputSchema: {},
       annotations: readOnly,
     },
@@ -208,6 +209,30 @@ export function createServer(options: { apiUrl?: string; startLive?: boolean } =
         const { sides, note } = views.resolveSides(model, args.team)
         const result = chanceStories(model, sides, selection, args.which ?? "both", args.limit ?? 20)
         return note ? { note, ...result } : result
+      })
+  )
+
+  server.registerTool(
+    "get_roles",
+    {
+      title: "Are the players doing their jobs?",
+      description:
+        "Role and instruction check for one team (default: yours). For each player, what his role, duty and player instructions ask, turned into what the capture can measure: " +
+        "where he stands with and without the ball (metres from his own goal and from the centre line) and what he does (per-90 counts ranked within the team), " +
+        "with a verdict (yes / no / unclear) for each. notHappening lists the clear misses. Defaults to the stretch since your latest tactic change (or the whole match). " +
+        "Use when the user asks whether a player or role is working, or why a flank or a midfielder isn't doing what they expect.",
+      inputSchema: { team: z.enum(["mine", "opponent", "home", "away"]).optional().describe("Whose players: mine (default), opponent, home or away."), ...windowFields },
+      annotations: readOnly,
+    },
+    async (args) =>
+      withMatch(({ model }) => {
+        const { sides, note } = views.resolveSides(model, args.team ?? "mine")
+        const side = sides[0]
+        const custom = args.half != null || args.from_minute != null || args.to_minute != null || args.last_minutes != null
+        const selection = custom ? model.select(toWindow(args)) : defaultRoleWindow(model, side)
+        if (!selection) return { error: "No match data in that window yet." }
+        const result = roleReport(model, side, selection)
+        return note ? { ...result, teamNote: `${note} Showing ${views.teamName(model, side)}.` } : result
       })
   )
 

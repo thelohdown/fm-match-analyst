@@ -27,6 +27,10 @@ then decide what matters most.
 4. Pull only the detail the question needs:
    - `get_phases` for the moments of the game over any stretch (a half, a
      window of minutes, the last N minutes), for one team or both.
+   - `get_roles` when the player asks whether a player or role is working:
+     what each role, duty and player instruction asks, what the numbers show,
+     and a verdict. `get_briefing` carries the clear misses as
+     `rolesNotHappening`.
    - `get_sequences` when the player asks why a goal or chance happened, or
      what the chances against them have in common: each goal and big chance
      traced back to the start of its move, with the moment of the shot.
@@ -161,6 +165,23 @@ move to the shot, in two or three lines:
   "three of four chances came within 15 s of losing the ball in midfield:
   counter-press, or hold shape after losing it"). One chance on its own is
   often just a good or a lucky moment; say so rather than overreacting.
+
+## Roles and instructions
+
+A role that isn't happening is often the real answer to "why isn't this
+working?" (a wing-back who never gets forward, an inverted full-back who stays
+wide). Use `rolesNotHappening` and `get_roles`, with care:
+
+- The capture sees average positions and counts, not movement or marking.
+  Averages pull everyone towards the middle; the verdicts compare each player
+  with his own team and with the player on the other flank, and `unclear` is
+  common. Only raise a role when the verdict is `no`, or when the comparison
+  with the mirrored player tells a clear story.
+- Ask why before suggesting a change: the player may lack the attributes for
+  the role (check `get_players` with attributes), the team may be pinned back
+  (little time on the ball moves everyone deeper), or the opponent may be
+  stopping it. Then suggest the fix in FM's terms: a different role or duty, a
+  player instruction, or a different player.
 
 ## Judging a change
 
