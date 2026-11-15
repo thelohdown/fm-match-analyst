@@ -12,6 +12,7 @@ import { saveFeedback } from "./feedback"
 import { clockLabel } from "./clock"
 import type { MatchModel } from "./model"
 import { phaseReport } from "./phaseViews"
+import { buildHalfTime, buildPostMatch, LIMITS, lengthProblems, missingInputs, saveReport } from "./report"
 import { DEFAULT_API, findArchive, listArchives, LiveSource, loadArchive, type ArchiveEntry } from "./sources"
 import * as views from "./views"
 
@@ -315,6 +316,101 @@ export function createServer(options: { apiUrl?: string; startLive?: boolean } =
     }
   )
 
+  const line = (limit: number) => z.string().min(1).max(limit)
+  server.registerTool(
+    "build_report",
+    {
+      title: "Build a printable report",
+      description:
+        "Only when the user asks for a report, one-pager, sheet or something to print or keep. Builds the printable post-match one-pager (kind post_match: score, verdict, match flow with xG and momentum, " +
+        "shot maps, the moments of the game for both teams, both teams' plans against what happened, average positions with passing links, and the player table) or the half-time sheet " +
+        "(kind half_time: three decisions for the second half, how the half turned, what the opponent is doing, the plan so far, players to watch with bench options), " +
+        "and saves it as one HTML page to open in a browser and print or save as PDF. Every number and chart is worked out from the match; you write only the lines that need judgement, " +
+        "so do the analysis first (get_briefing, get_phases, get_tactic for both teams, get_events, get_players). Building it again for the same match replaces the file.",
+      inputSchema: {
+        kind: z.enum(["post_match", "half_time"]).describe("post_match: the one-pager after full time; half_time: the sheet at the break."),
+        verdict: z
+          .array(z.object({ title: line(LIMITS.verdictTitle), detail: line(LIMITS.verdictDetail) }))
+          .max(3)
+          .optional()
+          .describe("post_match, exactly three: result against performance, what worked, what to fix. Each detail carries a number from the tools, written to the manager (we, our)."),
+        decisions: z
+          .array(z.object({ title: line(LIMITS.decisionTitle), evidence: line(LIMITS.decisionEvidence), option: line(LIMITS.decisionOption) }))
+          .max(3)
+          .optional()
+          .describe("half_time, up to three: what to change or keep for the second half, the evidence, and one option FM lets them make (a substitution, role, duty, instruction or mentality)."),
+        our_plan: z
+          .array(
+            z.object({
+              instruction: line(LIMITS.planLabel).describe("The instruction as FM names it, short (e.g. 'Engage lower (31\')')."),
+              status: z.enum(["seen", "not_seen"]),
+              evidence: line(LIMITS.planEvidence).describe("The deciding figure, one short line."),
+            })
+          )
+          .max(4)
+          .optional()
+          .describe("Both kinds, up to four of the user's team instructions (planVsReality in get_briefing) and whether the numbers show them happening. For one added mid-match, judge only the minutes after it."),
+        their_plan: z
+          .array(
+            z.object({
+              label: line(Math.max(LIMITS.planLabel, LIMITS.watchLabel)),
+              status: z.enum(["hurt", "contained"]).optional(),
+              evidence: line(Math.max(LIMITS.planEvidence, LIMITS.watchEvidence)),
+            })
+          )
+          .max(4)
+          .optional()
+          .describe(
+            `post_match: up to four things the opponent set out to do or changed (get_tactic for the opponent: changes and opposition instructions; get_phases before and after each change), each with status hurt or contained and what it did to the user's team (label up to ${LIMITS.planLabel} characters, evidence up to ${LIMITS.planEvidence}). ` +
+              `half_time: up to four things the opponent is doing now (no status; label up to ${LIMITS.watchLabel}, evidence up to ${LIMITS.watchEvidence}). Write "after", not "because": the data shows what followed a change, not the AI's reasons.`
+          ),
+        flow_events: z
+          .array(z.object({ minute: z.number().int().min(0).max(130), label: line(LIMITS.flowLabel) }))
+          .max(3)
+          .optional()
+          .describe("post_match, optional, up to three changes to mark on the timeline, e.g. \"31' Engage lower\" or \"74' LAFC go cautious\" (prefix the opponent's with its name)."),
+        players: z
+          .array(
+            z.object({
+              name: z.string().min(1).max(60).describe("As get_players names him."),
+              status: z.enum(["watch", "keep"]),
+              why: line(LIMITS.personWhy),
+              bench: line(LIMITS.personBench).optional().describe("For watch: who could replace him and the attributes that matter, e.g. 'Allen \u00b7 DL \u00b7 Pace 15'. For keep: how to use him."),
+            })
+          )
+          .max(5)
+          .optional()
+          .describe("half_time, up to five of the user's players: those to watch (booked, tiring, struggling, losing a matchup) and those to keep. Rating and condition at 45' are filled in from the match."),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async (args) => {
+      const label = args.kind === "post_match" ? "post-match" : "half-time"
+      const missing = missingInputs(args.kind, args)
+      if (missing.length > 0) return failure(`To build the ${label} report, also pass: ${missing.join("; ")}.`)
+      const tooLong = lengthProblems(args.kind, args)
+      if (tooLong.length > 0) return failure(`Shorten these to fit the page: ${tooLong.join("; ")}.`)
+      try {
+        const result = await current()
+        if ("error" in result) return failure(result.error)
+        const warning = dataWarning(checkData(result.model))
+        if (warning) return failure(`${warning} No report was built.`)
+        const built = args.kind === "post_match" ? buildPostMatch(result.model, result.source, args) : buildHalfTime(result.model, result.source, args)
+        const file = await saveReport(result.model, args.kind, built.html)
+        const notes = [...result.notes, ...built.notes]
+        return reply({
+          saved: file,
+          report: label,
+          match: built.title,
+          open: "Open the file in a browser to see it; print it landscape on US Letter or save it as a PDF.",
+          ...(notes.length > 0 ? { notes } : {}),
+        })
+      } catch (error) {
+        return failure(`Could not build the report: ${(error as Error).message}`)
+      }
+    }
+  )
+
   server.registerPrompt(
     "half_time_briefing",
     {
@@ -376,6 +472,57 @@ export function createServer(options: { apiUrl?: string; startLive?: boolean } =
               " the match moment by moment: in possession, out of possession, transitions and set pieces for both teams (get_phases by half), " +
               "how the game swung (get_team_stats per 15 minutes), the chances each side made and how they came about, which players stood out or struggled, " +
               "and the two or three lessons for the next match.",
+          },
+        },
+      ],
+    })
+  )
+
+  server.registerPrompt(
+    "post_match_report",
+    {
+      title: "Post-match report",
+      description: "The printable one-pager after full time: verdict, match flow, shots, the moments of the game, both teams' plans, shape and players.",
+      argsSchema: { match: z.string().optional().describe("Archive to report on (file name or words); default: the current or newest match.") },
+    },
+    ({ match }) => ({
+      messages: [
+        {
+          role: "user",
+          content: {
+            type: "text",
+            text:
+              (match ? `Load the match "${match}" with load_match. ` : "") +
+              "Build my post-match report. First do the analysis: get_briefing; get_phases for both teams over the whole match and each half; get_tactic for both teams; " +
+              "get_events for goals, shots and turnovers. Then call build_report with kind post_match and: a verdict of three lines to me (result against performance, " +
+              "what worked, what to fix), each with a number; four of my team instructions as seen or not seen with the deciding figure (for one added mid-match, " +
+              "compare get_phases after the change); four things the opponent did or changed (their tactic changes and opposition instructions, get_phases before and " +
+              "after each change, and the ball loss before each goal), each hurt or contained with what it did to us, saying \"after\", not \"because\"; and up to three " +
+              "changes to mark on the timeline. Then tell me where the file is in one line, and anything the report could not cover.",
+          },
+        },
+      ],
+    })
+  )
+
+  server.registerPrompt(
+    "half_time_report",
+    {
+      title: "Half-time report",
+      description: "The printable half-time sheet: three decisions for the second half, how the half turned, what the opponent is doing, the plan so far, players and bench.",
+    },
+    () => ({
+      messages: [
+        {
+          role: "user",
+          content: {
+            type: "text",
+            text:
+              "Build my half-time sheet. Start with get_briefing; then get_phases for both teams for 0-30 and 31-45, get_tactic for both teams, and get_players for my " +
+              "team with include_unused_subs and include_attributes (condition read with to_minute 45, before the half-time recovery) and for the opponent's key players. " +
+              "Then call build_report with kind half_time and: three decisions for the second half, each with its evidence and one option FM lets me make; up to four " +
+              "things the opponent is doing now; up to four of my instructions as seen or not seen in the first half; and up to five of my players, those to watch " +
+              "(booked, tiring, struggling, losing a matchup) with a bench option and the attributes that matter, and those to keep. Then tell me where the file is in one line.",
           },
         },
       ],

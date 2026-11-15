@@ -184,6 +184,40 @@ Say so plainly and do not analyse those numbers.
 If the notes or `source` say the data is a replay from `./mac/dev.sh serve`,
 it is not the match in FM: tell the player before anything else.
 
+## Reports
+
+The player can ask for a printed report: the post-match one-pager after full
+time, or the half-time sheet at the break. Build one only when asked ("a report",
+"one-pager", "half-time sheet", "something to print or keep"); do not offer it
+after every answer.
+
+Do the analysis first, as for any question, then call `build_report`. It works
+out every number and chart from the match and lays out the page; you write only
+the lines that need judgement, short enough to fit (if one is too long, the tool
+says which to shorten).
+
+- Post-match (`post_match`): three verdict lines to the manager (result against
+  performance, what worked, what to fix), each with a number; up to four of the
+  player's team instructions, seen or not seen, with the deciding figure; up to
+  four things the opponent set out to do or changed (`get_tactic` for the
+  opponent: changes and opposition instructions, with `get_phases` before and
+  after each change, and the ball loss before each goal), each hurt or contained;
+  and up to three changes to mark on the timeline.
+- Half-time (`half_time`): three decisions for the second half, each with its
+  evidence and one option FM lets them make; up to four things the opponent is
+  doing now; the player's instructions so far; up to five players to watch
+  (booked, tiring, struggling, losing a matchup) with a bench option and the
+  attributes that matter, or to keep.
+
+For the opponent's changes write "after", not "because": the data shows what
+followed a change, not the AI manager's reasons. For an instruction added
+mid-match, judge only the minutes after it. Read condition at 45' or 90'
+(`to_minute`), not after the whistle: it jumps 3-7% once play stops.
+
+The tool saves the page as one HTML file in the data folder and returns its
+path. Give the path in one line: the player opens it in a browser and prints it
+(landscape, US Letter) or saves it as a PDF.
+
 ## Feedback
 
 When the player says an answer was useful, useless or wrong, or asks you to

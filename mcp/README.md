@@ -44,8 +44,25 @@ match analysts do: frame everything by the game state, go through the moments of
 the game (in possession, out of possession, transitions, set pieces) for both
 teams, compare with the opponent, with earlier and with what the tactic asked
 for, cite numbers and minutes, and suggest only changes FM lets you make.
-There are also three prompts: `half_time_briefing`, `who_to_sub` and
-`match_review`.
+There are also five prompts: `half_time_briefing`, `who_to_sub`,
+`match_review`, and the two printable reports, `post_match_report` and
+`half_time_report`.
+
+### Printable reports
+
+Ask for a report (or use the prompts) and the analyst builds the page analysts
+hand a manager: the post-match one-pager after full time (verdict, match flow
+with xG and momentum, shot maps, the moments of the game for both teams, both
+teams' plans against what happened, average positions with passing links, the
+player table) or the half-time sheet at the break (three decisions for the second
+half, how the half turned, what the opponent is doing, the plan so far, players
+to watch with bench options). Every number and chart is worked out from the
+match by `build_report`; the analyst writes only the verdict, the decisions and
+the plan checks. The page is saved as one HTML file in
+`~/Documents/FM Match Analyst/reports` (or `FM_ANALYST_DATA_DIR/reports`), sized
+for landscape US Letter: open it in a browser and print it or save a PDF. The
+user's team is blue and the opponent orange throughout, and no status relies on
+red and green.
 
 Without the game, `./mac/dev.sh serve` replays an archive into the local API (as
 if the match were live; the analyst says it is a replay), and the server falls
@@ -64,6 +81,7 @@ back to the newest archive when nothing is live.
 | `get_shape` | Average positions in and out of possession, defensive line, length, width, territory, pass network, where the ball is won and lost |
 | `get_tactic` | The applied tactic: formations in and out of possession, each player's role and duty, mentality, team, transition, player and opposition instructions, and changes during the match |
 | `list_matches`, `load_match` | The live match and the archives; switch between them |
+| `build_report` | A printable post-match one-pager or half-time sheet, saved as an HTML page: every number and chart from the match, with the analyst's verdict, decisions and plan checks (only when the user asks for one) |
 | `note_feedback` | Saves your verdict on an answer (with your words, the question, the advice and the match situation) to `feedback.jsonl` in `~/Documents/FM Match Analyst` or `FM_ANALYST_DATA_DIR` |
 
 Every answer is checked first: team totals must equal the sum of the players'

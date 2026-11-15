@@ -109,10 +109,14 @@ function areaLabel(depth: number, width: number): string {
   return `${third}, ${channel}`
 }
 
-export function shotLocation(model: MatchModel, event: { team: Side; x: number; y: number }) {
+/** Where a shot was taken, in metres for the shooting team: out from the goal line, and across from the centre (negative = its left). */
+export function shotMetres(model: MatchModel, event: { team: Side; x: number; y: number }) {
   const { depth, width } = eventPoint(event)
-  const fromGoalLine = ((100 - depth) / 100) * model.halfLength * 2
-  const fromCentre = ((width - 50) / 100) * model.halfWidth * 2
+  return { fromGoalLine: ((100 - depth) / 100) * model.halfLength * 2, fromCentre: ((width - 50) / 100) * model.halfWidth * 2 }
+}
+
+export function shotLocation(model: MatchModel, event: { team: Side; x: number; y: number }) {
+  const { fromGoalLine, fromCentre } = shotMetres(model, event)
   const distance = Math.hypot(fromGoalLine, fromCentre)
   const area =
     fromGoalLine <= 5.5 && Math.abs(fromCentre) <= 9.16
@@ -235,7 +239,7 @@ export function quickAttributes(model: MatchModel, playerId: number): string | u
 // ---------------------------------------------------------------------------
 // Positions and shape
 
-type PlayerPosition = {
+export type PlayerPosition = {
   playerId: number
   side: Side
   samples: { in: number; out: number }
@@ -249,7 +253,7 @@ function orientationFor(model: MatchModel, period: number, side: Side): 1 | -1 |
 }
 
 /** Average positions (percent of pitch length from own goal, of width from the left touchline). */
-function averagePositions(model: MatchModel, buckets: readonly Bucket[]): Map<number, PlayerPosition> {
+export function averagePositions(model: MatchModel, buckets: readonly Bucket[]): Map<number, PlayerPosition> {
   const sums = new Map<number, { side: Side; inN: number; inD: number; inW: number; outN: number; outD: number; outW: number }>()
   const L = model.halfLength
   const W = model.halfWidth

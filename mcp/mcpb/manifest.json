@@ -4,7 +4,7 @@
   "display_name": "FM Match Analyst",
   "version": "0.0.0",
   "description": "Ask Claude about your live Football Manager match: stats, shots, players, shape and momentum from FMMatchLens's capture.",
-  "long_description": "A read-only analyst for Football Manager 27. It reads the match FMMatchLens is capturing (its local API on 127.0.0.1:16726) or the match archives it saves, and gives Claude the score, momentum, team and player stats for any stretch of the match, every shot with xG and location, cards and substitutions, average positions and team shape in and out of possession, the pass network, and where the ball is won and lost. Pause a match and ask what is going wrong. It never changes anything in the game. Needs FM27 with BepInEx and the FMMatchLens plugin.",
+  "long_description": "A read-only analyst for Football Manager 27. It reads the match FMMatchLens is capturing (its local API on 127.0.0.1:16726) or the match archives it saves, and gives Claude the score, momentum, team and player stats for any stretch of the match, every shot with xG and location, cards and substitutions, average positions and team shape in and out of possession, the pass network, and where the ball is won and lost. Pause a match and ask what is going wrong, or ask for a printable post-match or half-time report. It never changes anything in the game. Needs FM27 with BepInEx and the FMMatchLens plugin.",
   "author": {
     "name": "Kendall Loh"
   },
@@ -47,8 +47,8 @@
     },
     "data_dir": {
       "type": "directory",
-      "title": "Feedback folder",
-      "description": "Where your verdicts on answers are saved (feedback.jsonl). Leave empty for Documents/FM Match Analyst.",
+      "title": "Data folder",
+      "description": "Where your verdicts on answers (feedback.jsonl) and printable match reports (reports/) are saved. Leave empty for Documents/FM Match Analyst.",
       "required": false
     }
   },
@@ -92,6 +92,10 @@
     {
       "name": "load_match",
       "description": "Read the live match or a saved archive."
+    },
+    {
+      "name": "build_report",
+      "description": "A printable post-match one-pager or half-time sheet, saved as an HTML page: every number from the match, with your analyst's verdict."
     },
     {
       "name": "note_feedback",
