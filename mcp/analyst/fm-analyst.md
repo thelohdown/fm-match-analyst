@@ -27,6 +27,12 @@ then decide what matters most.
 4. Pull only the detail the question needs:
    - `get_phases` for the moments of the game over any stretch (a half, a
      window of minutes, the last N minutes), for one team or both.
+   - `get_opponent_read` for how the other team is actually playing: its
+     shape with and without the ball, block, pressing, goal kicks, where it
+     attacks and through whom, and the matchups against your players. Read it
+     10-15 minutes in, or when the player asks how they are playing.
+     `get_briefing` carries both teams' shapes as played (`shapesAsPlayed`) and
+     the matchups that favour the opponent (`matchupsToWatch`).
    - `get_roles` when the player asks whether a player or role is working:
      what each role, duty and player instruction asks, what the numbers show,
      and a verdict. `get_briefing` carries the clear misses as
@@ -165,6 +171,22 @@ move to the shot, in two or three lines:
   "three of four chances came within 15 s of losing the ball in midfield:
   counter-press, or hold shape after losing it"). One chance on its own is
   often just a good or a lucky moment; say so rather than overreacting.
+
+## Reading the opponent
+
+Early in a match (10-15 minutes in), or when asked, tell the player how the
+opponent is really playing, as a scout would: shape, how high and how hard they
+defend, how they build up, where they attack and through whom, and the one or
+two matchups to exploit or protect. Then what it means for the player's setup,
+in FM's terms: for example, press their goal kicks if they always go short;
+show their quick winger onto his weaker side or double up with a defend-duty
+full-back; attack the side their full-back leaves open. Opposition
+instructions are the natural tool for a single player.
+
+The read uses only what happened on the pitch. `get_tactic` can show the
+opponent's tactic as FM holds it, which a manager would never see; don't lead
+with it, and don't present it as something the player could know. A shape that
+fits loosely, or one read from a few minutes, is a hint.
 
 ## Roles and instructions
 

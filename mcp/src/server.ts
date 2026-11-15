@@ -8,6 +8,7 @@ import * as z from "zod"
 import guide from "../analyst/fm-analyst.md"
 import { briefing } from "./briefing"
 import { changesReport } from "./changes"
+import { opponentRead } from "./opponent"
 import { defaultRoleWindow, roleReport } from "./roles"
 import { chanceStories } from "./sequences"
 import { checkData, dataWarning } from "./checks"
@@ -135,7 +136,7 @@ export function createServer(options: { apiUrl?: string; startLive?: boolean } =
         "in possession (build-up/progression/final-third time, how often possessions reach the final third and box and through which channel, chance quality, crossing, passing); " +
         "out of possession (block and line height, where the opponent gets in, pressing, duels); transitions (regains, fast breaks, losses, counter-pressing, " +
         "shots within 15 s either way); set pieces; whether the tactic's team instructions are happening; shots in the last 20 minutes with how each came about; " +
-        "who is tiring, fading, struggling or standing out; tactics with recent changes; whether your latest change is working (before against after); how each goal came about; roles and player instructions that are clearly not happening; the bench; the last 10 minutes' events. The last 15 minutes are set against earlier in the half for both teams.",
+        "who is tiring, fading, struggling or standing out; tactics with recent changes; whether your latest change is working (before against after); how each goal came about; roles and player instructions that are clearly not happening; both shapes as actually played and the matchups that favour the opponent; the bench; the last 10 minutes' events. The last 15 minutes are set against earlier in the half for both teams.",
       inputSchema: {},
       annotations: readOnly,
     },
@@ -233,6 +234,28 @@ export function createServer(options: { apiUrl?: string; startLive?: boolean } =
         if (!selection) return { error: "No match data in that window yet." }
         const result = roleReport(model, side, selection)
         return note ? { ...result, teamNote: `${note} Showing ${views.teamName(model, side)}.` } : result
+      })
+  )
+
+  server.registerTool(
+    "get_opponent_read",
+    {
+      title: "How the opponent is playing",
+      description:
+        "A scout's read of one team (default: the opponent) from what happened on the pitch, not from its tactic screen: its shape with and without the ball " +
+        "(matched to the nearest FM formation, with who played where), block and line height, pressing, build-up and goal kicks (short or long), where it attacks " +
+        "(down your left, middle or right), crosses, who it goes through and who threatens, its transitions, and the matchups against your players with an edge in " +
+        "pace, strength or the air. Use early in a match (10-15 minutes in) to confirm or correct the pre-match plan, or whenever the user asks how they are playing.",
+      inputSchema: { team: z.enum(["mine", "opponent", "home", "away"]).optional().describe("Whose play to read: opponent (default), mine, home or away."), ...windowFields },
+      annotations: readOnly,
+    },
+    async (args) =>
+      withMatch(({ model }) => {
+        const selection = model.select(toWindow(args))
+        if (!selection) return { error: "No match data in that window yet." }
+        const { sides, note } = views.resolveSides(model, args.team ?? "opponent")
+        const result = opponentRead(model, sides[0], selection)
+        return note ? { ...result, teamNote: `${note} Showing ${views.teamName(model, sides[0])}.` } : result
       })
   )
 
