@@ -35,6 +35,11 @@
     </Reference>
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- mac/offline runs the capture code against macOS probe snapshots. -->
+    <InternalsVisibleTo Include="FMMatchLens.MacOffline" />
+  </ItemGroup>
+
   <Target Name="GenerateProjectMetadata" BeforeTargets="CoreCompile">
     <PropertyGroup>
       <GeneratedProjectMetadataFile>$(IntermediateOutputPath)ProjectMetadata.g.cs</GeneratedProjectMetadataFile>

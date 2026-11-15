@@ -177,6 +177,24 @@ cmd_build() {
   echo "built: $PLUGIN_DLL"
 }
 
+# Sets [macOS] Mode in the plugin's BepInEx config, adding the section if needed.
+set_mac_mode() {
+  local cfg="$1" mode="$2" tmp
+  tmp="$(mktemp)"
+  if grep -q '^\[macOS\]' "$cfg"; then
+    awk -v mode="$mode" '
+      /^\[/ { if (section == "[macOS]" && !done) { print "Mode = " mode; print ""; done = 1 } section = $0 }
+      section == "[macOS]" && /^Mode[ ]*=/ { if (!done) print "Mode = " mode; done = 1; next }
+      { print }
+      END { if (section == "[macOS]" && !done) print "Mode = " mode }' "$cfg" > "$tmp"
+  else
+    cat "$cfg" > "$tmp"
+    printf '\n[macOS]\n\nMode = %s\n' "$mode" >> "$tmp"
+  fi
+  cat "$tmp" > "$cfg"
+  rm -f "$tmp"
+}
+
 cmd_install() {
   need_bepinex
   cmd_build
@@ -188,7 +206,9 @@ cmd_install() {
   if [ ! -f "$cfg" ]; then
     printf '[Logging]\n\nMode = debug\n' > "$cfg"
   fi
-  echo "installed to: $target"
+  # capture (default) runs FMMatchLens itself; MODE=probe ./mac/dev.sh install runs the probe.
+  set_mac_mode "$cfg" "${MODE:-capture}"
+  echo "installed to: $target (macOS mode: ${MODE:-capture})"
   echo "Now launch FM27 from Steam (with the BepInEx launch option), enter a match, then run: ./mac/dev.sh logs"
 }
 

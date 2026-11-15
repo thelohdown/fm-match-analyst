@@ -65,6 +65,8 @@ internal static class VirtualMemory
     {
         if (MacNative.IsMacOS)
             return MacNative.TryQueryRegion(address, out regionStart, out regionEnd, out readable);
+        if (OperatingSystem.IsLinux())
+            return TryQueryLinuxRegion(address, out regionStart, out regionEnd, out readable);
 
         regionStart = 0;
         regionEnd = 0;
@@ -80,6 +82,32 @@ internal static class VirtualMemory
         readable = info.State == MemCommit &&
                    (info.Protect & (PageNoAccess | PageGuard)) == 0;
         return true;
+    }
+
+    /// <summary>
+    /// Linux is not a game platform; this exists so the capture code can be run offline
+    /// against probe snapshots mapped into a test process (mac/offline).
+    /// </summary>
+    private static bool TryQueryLinuxRegion(nint address, out ulong regionStart, out ulong regionEnd, out bool readable)
+    {
+        regionStart = regionEnd = 0;
+        readable = false;
+        var target = (ulong)address;
+        foreach (var line in File.ReadLines("/proc/self/maps"))
+        {
+            var dash = line.IndexOf('-');
+            var space = line.IndexOf(' ');
+            if (dash <= 0 || space <= dash) continue;
+            var start = Convert.ToUInt64(line[..dash], 16);
+            var end = Convert.ToUInt64(line[(dash + 1)..space], 16);
+            if (target < start || target >= end) continue;
+            regionStart = start;
+            regionEnd = end;
+            readable = line.Length > space + 1 && line[space + 1] == 'r';
+            return true;
+        }
+
+        return false;
     }
 
     internal readonly record struct QueriedRegion(ulong Start, ulong End, bool Readable);

@@ -5,29 +5,42 @@ Apple Silicon Macs. Upstream FMMatchLens supports Windows only.
 
 ## Status
 
+On macOS the plugin now runs **FMMatchLens's normal capture** with a macOS offset table
+(`[macOS] Mode = capture`, the default; `./mac/dev.sh install` sets it). The local API on
+`127.0.0.1:16726` and the dashboard work as on Windows for what is mapped.
+
 | Part | Status |
 | --- | --- |
-| Memory region checks (`mach_vm_region` instead of `VirtualQuery`) | Written, compiles; untested in game |
-| Finding the game library (dyld instead of `GetModuleHandle`) | Written, compiles; untested in game |
-| Executable ranges and function entries from Mach-O load commands | Written; tested against a real arm64 Mach-O (matches LIEF) |
-| Graphics folder default (`~/Library/Application Support/...`) | Written |
-| `GAME_MATCH` Advance hook in the arm64 build | **Located** in the FM27 demo (see Findings); hooked by the read-only probe, not tested live yet |
-| Native memory offsets (`Memory/Offsets.cs`) on macOS | **Partly mapped**: fields near the end of `GAME_MATCH` sit 0x10 lower than on Windows |
-| Native hook API | `Memory/NativeDetourCompat.cs` uses `INativeDetour` where BepInEx still has it (Windows builds) and MonoMod.Core's detour factory otherwise; the macOS FM27 package (Nov 2026) is the latter. Builds against both; the MonoMod.Core path is tested on Linux x64, not yet in game |
+| Hook, memory checks, Mach-O parsing, detours | Working in game (FM27 demo and full release, Steam, BepInEx be.788 macOS package) |
+| Match clock, period, full-time flag, ball, possession, ball holder | Mapped; verified live and against snapshots |
+| Player positions, per-player stats, ratings, team stats, momentum events, xG | Mapped; FMMatchLens's own read code reproduces every number FM showed at full time (offline check below) |
+| Player IDs, shirt numbers, birth dates, nationality, contract (wage, squad number) | Mapped; verified against snapshots |
+| Competition ID and colours, team IDs and kit colours | Mapped; verified against snapshots |
+| Player, club and competition names; managers | Mapped by layout but not verified: those objects were never in a snapshot. The capture logs a `macOS metadata check` line per match to confirm them |
+| Human v AI manager | Not mapped: every manager is reported as AI. The log records each manager's Itanium "offset to top" so the two kinds can be told apart |
+| Attributes, position familiarity, condition, morale, ability, season stats | **Off on macOS**: the ActualPlayer part of the player record is laid out differently and not mapped |
+| Tactics, rating research (rating engine internals) | **Off on macOS**: not mapped |
 
-On macOS the plugin runs a **read-only probe** instead of the full capture until
-the macOS offsets are verified (`[macOS] Mode = probe` in
-`BepInEx/config/com.fmmatchlens.plugin.cfg`; `capture` switches back). The probe
-hooks `GAME_MATCH` Advance, calls the original, then only reads: every 5 seconds
-per match object it logs candidate fields (ticks, period, lifecycle and check
-bytes, ball position, team pointers) at the shifted offsets, with the Windows
-offsets alongside. A few times per match it saves a "graph" snapshot
-(`*-graph.bin`) to `BepInEx/plugins/FMMatchLens/data/mac-probe/`: the match
-object, both teams, the objects the teams point to (match players are the ones
-that point back to the match), and what those point to (people, names). It logs
-a one-line summary of each, including where the players point back to the
-match. `./mac/dev.sh logs` copies the files to `local/probe/`, and
-`mac/read_graph.py` reads them.
+`Memory/Offsets.cs` keeps one table: fields that differ on macOS are `static readonly`
+and chosen at start-up (`Offsets.IsMac`); everything still `const` is the same on both.
+
+The read-only **probe** (`MODE=probe ./mac/dev.sh install`) is still there for mapping:
+it hooks `GAME_MATCH` Advance, calls the original, then only reads. Every 5 seconds per
+match object it logs candidate fields; it saves "graph" snapshots (`*-graph.bin`) of the
+match, both teams, their players, the players' records and names, stats objects and the
+momentum events to `BepInEx/plugins/FMMatchLens/data/mac-probe/`, automatically at a few
+points and whenever a match stops for 5 seconds, or on request (`./mac/dev.sh snap`).
+`./mac/dev.sh logs` copies them to `local/probe/`; `mac/read_graph.py` reads them.
+
+### Offline check (`mac/offline`)
+
+`mac/offline` runs the plugin's own capture code against a graph snapshot on Linux: it
+maps the snapshot's objects back at their original addresses, forces the macOS offsets
+(`FMMATCHLENS_MAC_OFFSETS=1`), and calls the capture's read paths directly (tick record,
+team stats, event source, player frames, team/player/competition metadata). Given a
+`local/truth/*.json` file of what FM showed, it checks the results. For the full-time
+snapshot of Chicago 1-0 Atlanta United 2 every check passes: score, shots, shots on
+target, xG, passes, passes completed, tackles won, fouls, distance, and all 22 ratings.
 
 ## One-time setup
 

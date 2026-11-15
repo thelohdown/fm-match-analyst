@@ -21,9 +21,9 @@ internal sealed class PluginOptions
         MacMode = config.Bind(
             "macOS",
             "Mode",
-            "probe",
-            "macOS only. probe: hook the match update read-only and log and snapshot candidate fields " +
-            "(the default until the macOS offsets are verified). capture: run the normal capture.");
+            "capture",
+            "macOS only. capture: run the normal capture with the macOS offsets. probe: hook the match " +
+            "update read-only and log and snapshot candidate fields, for mapping the macOS layout.");
 
         ArchiveCompression = config.Bind(
             "Archive",

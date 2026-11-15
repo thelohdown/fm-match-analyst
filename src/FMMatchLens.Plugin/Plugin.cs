@@ -50,10 +50,10 @@ public sealed class Plugin : BasePlugin
         _apiServer = new LocalApiServer(realtimeTimeline, _archiveStore, _graphicsAssets);
 
         _apiServer.Start();
-        if (MacNative.IsMacOS && !string.Equals(options.MacMode.Value, "capture", StringComparison.OrdinalIgnoreCase))
+        if (MacNative.IsMacOS && string.Equals(options.MacMode.Value, "probe", StringComparison.OrdinalIgnoreCase))
         {
-            // The macOS memory layout is not verified yet, so run the read-only probe
-            // instead of the full capture.
+            // Read-only probe of the macOS memory layout, for mapping fields that are not
+            // verified yet (see mac/README.md), instead of the full capture.
             _macProbe = new MacMatchProbe(Path.Combine(dataPath, "mac-probe"));
             _macProbe.Start();
             return;

@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Runs FMMatchLens's capture code against a macOS probe graph snapshot, with the snapshot's
+    memory mapped back at its original addresses in a Linux process. Linux x86-64 or arm64 only.
+    It uses the plugin as built by ./mac/dev.sh build (bin/Release/net6.0); pass
+    -p:PluginTargetFramework=net8.0 if the plugin was built for net8.0 instead.
+    Build: dotnet build mac/offline
+    Run:   dotnet mac/offline/bin/Debug/net8.0/FMMatchLens.MacOffline.dll SNAPSHOT-graph.bin [truth.json]
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AssemblyName>FMMatchLens.MacOffline</AssemblyName>
+    <RollForward>Major</RollForward>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <PluginTargetFramework Condition="'$(PluginTargetFramework)' == ''">net6.0</PluginTargetFramework>
+    <PluginDirectory>../../src/FMMatchLens.Plugin</PluginDirectory>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="FMMatchLens.Plugin">
+      <HintPath>$(PluginDirectory)/bin/Release/$(PluginTargetFramework)/FMMatchLens.Plugin.dll</HintPath>
+    </Reference>
+    <Reference Include="BepInEx.Core">
+      <HintPath>$(PluginDirectory)/lib/BepInEx.Core.dll</HintPath>
+    </Reference>
+    <Reference Include="BepInEx.Unity.IL2CPP">
+      <HintPath>$(PluginDirectory)/lib/BepInEx.Unity.IL2CPP.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The plugin's BepInEx types must load at run time; copy whatever setup put in lib/. -->
+    <None Include="$(PluginDirectory)/lib/*.dll" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+  </ItemGroup>
+</Project>

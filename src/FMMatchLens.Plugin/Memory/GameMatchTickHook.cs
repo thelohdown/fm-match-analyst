@@ -64,6 +64,7 @@ internal sealed class GameMatchTickHook : IDisposable
     private readonly Dictionary<nint, NativeMomentumCaptureState> _nativeMomentumStates = new();
     private readonly Dictionary<(nint Match, int Slot), RatingResearchPlayerData> _lastRatingResearchBySlot = new();
     private readonly Dictionary<nint, (float Home, float Away)> _ratingBackgroundByMatch = new();
+    private readonly ConcurrentDictionary<uint, byte> _loggedMacManagerOffsets = new();
     private readonly Dictionary<nint, int> _lastRatingCapturedTickByMatch = new();
     private readonly Dictionary<nint, long> _ratingGenerations = new();
     private readonly Dictionary<nint, RatingResearchMatchData?> _lastRatingMatchByMatch = new();
@@ -983,6 +984,9 @@ internal sealed class GameMatchTickHook : IDisposable
         RawRealtimeTickFrame frame,
         ReadOnlySpan<nint> capturedMatchPlayers)
     {
+        // macOS: the rating-research fields (rating context, events, category history) are not
+        // verified there yet. The displayed rating still comes from PlayerStats.RatingTimes100.
+        if (Offsets.IsMac) return;
         lock (_ratingCaptureGate)
         {
             if (_ratingGenerations.TryGetValue(match, out var generation))
@@ -1472,6 +1476,19 @@ internal sealed class GameMatchTickHook : IDisposable
             var awayMetadata = ReadTeamMetadata(source.AwayTeam, "Away");
             var date = state.MatchDate;
             var competition = ReadCompetitionMetadata(match);
+            if (Offsets.IsMac && !session.MacMetadataLogged)
+            {
+                // Names come from objects the macOS probe never copied, so they are checked here,
+                // once per match, against what FM shows.
+                session.MacMetadataLogged = true;
+                var players = string.Join(", ", metadata.Take(4).Select(p => $"{p.DisplayName} [{p.ShirtName}]"));
+                QueueDiagnostic(DiagnosticSeverity.Info,
+                    $"macOS metadata check: home='{homeMetadata.Name}' (team {homeMetadata.Uid}, club {homeMetadata.ClubUid}, " +
+                    $"manager {homeMetadata.Manager?.FirstName} {homeMetadata.Manager?.SecondName}), away='{awayMetadata.Name}' " +
+                    $"(team {awayMetadata.Uid}, club {awayMetadata.ClubUid}, manager {awayMetadata.Manager?.FirstName} " +
+                    $"{awayMetadata.Manager?.SecondName}), competition='{competition?.Name}' ({competition?.Uid}), date={date}, " +
+                    $"players: {players}.");
+            }
             return () => session.Timeline.SetMetadata(homeMetadata, awayMetadata, metadata, date, competition);
         }
         return null;
@@ -1676,6 +1693,7 @@ internal sealed class GameMatchTickHook : IDisposable
         rttiOffset = default;
         kind = ManagerKind.Unknown;
         uid = null;
+        if (Offsets.IsMac) return TryReadMacManagerIdentity(team, out person, out rttiOffset, out kind, out uid);
         if (team == default ||
             !_memoryReader.TryReadPointer(team + Offsets.Team.Manager, out var manager) ||
             manager == default ||
@@ -1700,9 +1718,52 @@ internal sealed class GameMatchTickHook : IDisposable
         return true;
     }
 
+    /// <summary>
+    /// macOS manager identity. Itanium C++ objects keep the subobject's distance from the start
+    /// of the whole object at vtable-0x10 ("offset to top"), the counterpart of the MSVC RTTI
+    /// subobject offset used on Windows. Which values mean human manager and AI staff is not
+    /// known yet, so every manager is reported as staff and each value seen is logged once.
+    /// </summary>
+    private bool TryReadMacManagerIdentity(
+        nint team,
+        out nint person,
+        out uint offsetToTop,
+        out ManagerKind kind,
+        out uint? uid)
+    {
+        person = default;
+        offsetToTop = default;
+        kind = ManagerKind.Unknown;
+        uid = null;
+        if (team == default ||
+            !_memoryReader.TryReadPointer(team + Offsets.Team.Manager, out var manager) ||
+            manager == default ||
+            !_memoryReader.TryReadPointer(manager + Offsets.Manager.Person, out person) ||
+            person == default ||
+            !_memoryReader.TryReadPointer(person, out var virtualFunctionTable) ||
+            virtualFunctionTable == default ||
+            !_memoryReader.TryReadUInt64(virtualFunctionTable - 0x10, out var rawOffsetToTop))
+        {
+            return false;
+        }
+
+        offsetToTop = unchecked((uint)(-(long)rawOffsetToTop));
+        kind = ManagerKind.Staff;
+        uid = ReadUid(person + Offsets.Person.Uid);
+        if (_loggedMacManagerOffsets.TryAdd(offsetToTop, 0))
+        {
+            QueueDiagnostic(DiagnosticSeverity.Info,
+                $"macOS manager person: offset to top 0x{offsetToTop:X}, uid={uid?.ToString() ?? "?"}, " +
+                $"name={ReadPersonName(person, Offsets.Person.FirstName)} {ReadPersonName(person, Offsets.Person.SecondName)}.");
+        }
+
+        return true;
+    }
+
     private IReadOnlyDictionary<string, int>? ReadPlayerPositionFamiliarities(nint person)
     {
-        if (person == default)
+        // macOS: the ActualPlayer part of the record is laid out differently and not mapped yet.
+        if (person == default || Offsets.IsMac)
         {
             return null;
         }
@@ -1747,7 +1808,8 @@ internal sealed class GameMatchTickHook : IDisposable
             return null;
         }
 
-        var actualPlayer = person + Offsets.Person.ActualPlayerDelta;
+        // macOS: ActualPlayer is not mapped yet; a null base makes those reads fail and stay null.
+        var actualPlayer = Offsets.IsMac ? default : person + Offsets.Person.ActualPlayerDelta;
         _memoryReader.TryReadPointer(person + Offsets.Person.Nation, out var nation);
         var bodyType = _memoryReader.TryReadByte(actualPlayer + Offsets.ActualPlayer.BodyType, out var rawBodyType) &&
                        rawBodyType is >= 1 and <= 5
@@ -1870,7 +1932,8 @@ internal sealed class GameMatchTickHook : IDisposable
 
     private PlayerAttributes? ReadPlayerAttributes(nint person)
     {
-        if (person == default)
+        // macOS: the ActualPlayer part of the record is laid out differently and not mapped yet.
+        if (person == default || Offsets.IsMac)
         {
             return null;
         }
@@ -3090,6 +3153,8 @@ internal sealed class GameMatchTickHook : IDisposable
 
     private TacticalStateSampler? GetTacticalSampler(nint match, long generation)
     {
+        // macOS: tactics structures are not mapped yet.
+        if (Offsets.IsMac) return null;
         if (_activeSession is { } session)
         {
             if (!session.Invalidated && session.Animated == match && session.Generation == generation) return session.Tactics;
@@ -3285,6 +3350,7 @@ internal sealed class GameMatchTickHook : IDisposable
         public bool EndObserved, FinalFrameQueued, FinalFrameRejected;
         public int ClearedTeamObservations;
         public int UnreadableObservations;
+        public bool MacMetadataLogged;
     }
 
     private enum SessionIdentityProbe { Busy, Unreadable, Readable }
