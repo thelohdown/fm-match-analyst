@@ -131,13 +131,15 @@ Checked against the game's own match screens (Chicago Fire v LAFC, 14 Nov 2026):
 | Field | Windows | macOS | Evidence |
 | --- | --- | --- | --- |
 | MatchPlayer.ShirtNumber | 0xC9C | 0xC94 | all 11 starters' squad numbers (1, 2, 3, 4, 15, 42, 6, 11, 37, 19, 9) |
-| MatchPlayer.RawInternalRating | 0x1D58 | 0x1D58 | int32, ~rating x 1000; truncated to one decimal it matched 10 of 11 ratings shown 20 s later (the 11th was 6.6 v 6.5) |
+| MatchPlayer.RawInternalRating | 0x1D58 | 0x1D58 | int32, rating x 1000. The game shows it truncated to one decimal: all 11 starters' ratings matched at a second point (6.8 … 7.4), read from the match object that lags behind |
+| MatchPlayer.Stats | 0x1880 | 0x1880 | pointer to the per-match stats object (now copied by the probe) |
 | GameMatch.MomentumEventSource | 0x14EA8 | 0x14E98 | +0x08/+0x10 begin/end of 147 0x38-byte events at tick 1890 |
 
 The team stats FM shows (shots, corners, xG, possession) are not stored as team fields; on
 Windows FMMatchLens derives them from the momentum events, so the events are next. While
 a match is shown, FM keeps two match objects with the same teams, one several hundred
 ticks ahead of the other (the Windows capture code distinguishes the animated instance).
+The ratings on screen match the instance that is behind, so that is the one being shown.
 
 `./mac/dev.sh snap` asks the probe for a snapshot of every live match on its next step,
 so numbers the game is showing (player stats, ratings) can be matched to memory.

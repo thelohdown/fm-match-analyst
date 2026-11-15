@@ -61,6 +61,8 @@ internal sealed class MacMatchProbe
     private const int ShirtNameCandidate = 0x38;
     private const string TriggerFileName = "snapshot-now";
     private const int MomentumEventSourceCandidate = 0x14E98;
+    private const int StatsCandidate = 0x1880;
+    private const int StatsSize = 0x180;
     private const int MomentumEventSize = 0x38;
     private const ulong MaxEventBytes = 0x38UL * 20000;
     private const int MaxManualSnapshots = 40;
@@ -323,6 +325,14 @@ internal sealed class MacMatchProbe
             foreach (var player in players)
             {
                 var playerBytes = graph.Records[player].Data;
+                // MatchPlayer.Stats: a pointer at 0x1880, as on Windows, to the per-match stats
+                // (goals, assists, shots, passes, tackles; Windows fields reach 0xF6).
+                if (playerBytes.Length >= StatsCandidate + 8)
+                {
+                    var stats = BitConverter.ToUInt64(playerBytes, StatsCandidate);
+                    if (IsHeapPointer(stats, 3)) graph.Add(stats, stats, StatsSize, player, StatsCandidate, 3);
+                }
+
                 var windows = 0;
                 for (var offset = 0; offset + 8 <= PlayerScanEnd && windows < MaxPlayerChildren; offset += 8)
                 {
