@@ -38,8 +38,8 @@ internal sealed class MacMatchProbe
 
     private const int SnapshotSize = 0x16000;
     private const int TeamSnapshotSize = 0x4000;
-    private const int MaxSnapshots = 24;
-    private const int MaxSnapshotsPerMatch = 4;
+    private const int MaxSnapshots = 40;
+    private const int MaxSnapshotsPerMatch = 2;
     private const int SnapshotAfterCalls = 50;
     private const int SnapshotEveryTicks = 1200;
 
@@ -67,6 +67,9 @@ internal sealed class MacMatchProbe
     private const ulong MaxEventBytes = 0x38UL * 20000;
     private const int MaxManualSnapshots = 40;
     private const long IdleMatchMaxAgeMs = 2 * 60 * 60 * 1000;
+    private const long StoppedAfterCalls = 1000;
+    private const long StoppedAfterMs = 5000;
+    private const int MaxStoppedSnapshotsPerMatch = 4;
     private const uint GraphMagic = 0x47504D46; // "FMPG"
     private const uint GraphVersion = 1;
     private static readonly TimeSpan LogInterval = TimeSpan.FromSeconds(5);
@@ -276,6 +279,7 @@ internal sealed class MacMatchProbe
         try
         {
             CheckTrigger();
+            SnapshotStoppedMatches();
             var generation = Volatile.Read(ref _manualGeneration);
             if (generation == 0) return;
             var now = Environment.TickCount64;
@@ -298,6 +302,31 @@ internal sealed class MacMatchProbe
         {
             if (Interlocked.Increment(ref _failuresLogged) <= 5)
                 PluginLogger.Warning($"[macOS probe] Idle snapshot failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Saves a snapshot of a match that has played for a while and then stopped stepping
+    /// for a few seconds: the final whistle, or a pause. Full-time numbers are then on
+    /// disk without anyone asking. At most a few per match, one per stop.
+    /// </summary>
+    private void SnapshotStoppedMatches()
+    {
+        var now = Environment.TickCount64;
+        foreach (var (match, state) in _matches)
+        {
+            var calls = Interlocked.Read(ref state.Calls);
+            if (calls < StoppedAfterCalls || state.StoppedSnapshots >= MaxStoppedSnapshotsPerMatch) continue;
+            var lastCall = Volatile.Read(ref state.LastCallAt);
+            if (now - lastCall < StoppedAfterMs || now - lastCall > IdleMatchMaxAgeMs) continue;
+            lock (state)
+            {
+                if (state.StoppedAtCalls == calls) continue;
+                state.StoppedAtCalls = calls;
+                if (state.HomeTeam == 0 || ReadPointer(match + HomeTeam) != state.HomeTeam) continue;
+                state.StoppedSnapshots++;
+                DeepSnapshot(match, ReadInt32(match + Tick) ?? -1, state.LastTargetTick, "stopped");
+            }
         }
     }
 
@@ -462,7 +491,7 @@ internal sealed class MacMatchProbe
         }
 
         var stamp = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss-fff");
-        var suffix = kind == "manual" ? "-manual" : string.Empty;
+        var suffix = kind == "auto" ? string.Empty : "-" + kind;
         var fileName = $"match-{matchAddress:X}-tick{tick}-target{targetTick}-{stamp}{suffix}-graph.bin";
         PluginLogger.Info(
             $"[macOS probe] Graph snapshot ({kind}) of match 0x{matchAddress:X} at tick {tick}: {graph.Records.Count} objects, " +
@@ -644,6 +673,8 @@ internal sealed class MacMatchProbe
         public DateTime LastLog = DateTime.MinValue;
         public int ManualGeneration;
         public long LastCallAt;
+        public long StoppedAtCalls;
+        public int StoppedSnapshots;
         public nint HomeTeam;
     }
 

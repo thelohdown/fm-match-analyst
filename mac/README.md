@@ -141,7 +141,9 @@ a match is shown, FM keeps two match objects with the same teams, one several hu
 ticks ahead of the other (the Windows capture code distinguishes the animated instance).
 The ratings on screen match the instance that is behind, so that is the one being shown.
 
-`./mac/dev.sh snap` asks the probe for a snapshot of every live match on its next step,
+The probe also saves a snapshot by itself when a match that has played a while stops
+stepping for 5 seconds (the final whistle, or a pause), so full-time numbers are on disk
+without asking. `./mac/dev.sh snap` asks for one of every live match on its next step,
 so numbers the game is showing (player stats, ratings) can be matched to memory.
 
 ## Finding the hook
