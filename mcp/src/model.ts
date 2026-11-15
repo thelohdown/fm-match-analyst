@@ -23,6 +23,15 @@ import { HistoricalDerivations } from "@/api/replay/replayDerivations"
 import { TacticalWireState } from "@/components/formation/tactics"
 import type { TacticalConfiguration, TacticalSnapshot } from "@/types/match"
 
+/** The dashboard's position heatmaps: not used here, and about a fifth of the load time. */
+function withoutHeatmaps(derived: HistoricalDerivations): HistoricalDerivations {
+  const empty = { full: [], half: [] }
+  ;(derived as unknown as { heatmaps: object }).heatmaps = {
+    reset() {}, append() {}, appendFrame() {}, snapshot: () => empty, getHeatmap: () => [], exportState: () => empty, restoreState() {},
+  }
+  return derived
+}
+
 import { minuteNumber, periodEndMinute, periodStartSeconds, TICKS_PER_SECOND } from "./clock"
 import { PossessionTracker, type ShapeSample, shapeSlot, shapeValues, SHAPE_VALUE_FIELDS } from "./phases"
 
@@ -178,7 +187,7 @@ export type PositionFrame = { tick: number; ids: Int32Array; xy: Float32Array }
 export class MatchModel {
   readonly matchId: string
   metadata: RealtimeMatchMetadata | null = null
-  readonly derived = new HistoricalDerivations()
+  readonly derived = withoutHeatmaps(new HistoricalDerivations())
   readonly buckets: Bucket[] = []
   readonly appearances = new Map<number, Appearance>()
   last?: RealtimeFrame

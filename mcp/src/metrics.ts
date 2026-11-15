@@ -89,69 +89,161 @@ export function teamMetrics(model: MatchModel, side: Side, context = new PhaseCo
 const norm = (name: string) => name.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "")
 
 export type CachedMatch = { file: string; modified: string; matchId: string; date?: string; team: string; opponent: string; metrics: MatchMetrics }
-type MetricsCache = Record<string, CachedMatch>
+
+/** One finished match: both teams' figures, from a live match at full time or a saved archive. */
+type MatchRecord = {
+  matchId: string
+  date?: string
+  home: string
+  away: string
+  metrics: Record<Side, MatchMetrics>
+  /** The archive it was read from, when it was (so a changed file is read again). */
+  file?: string
+  modified?: string
+}
+type MetricsCache = { version: 2; matches: Record<string, MatchRecord> }
+
+const cacheFile = () => join(dataFolder(), "match-metrics.json")
+let memory: { folder: string; cache: MetricsCache } | undefined
 
 async function readCache(): Promise<MetricsCache> {
+  if (memory?.folder === dataFolder()) return memory.cache
+  let cache: MetricsCache = { version: 2, matches: {} }
   try {
-    return JSON.parse(await readFile(join(dataFolder(), "match-metrics.json"), "utf8")) as MetricsCache
+    const parsed = JSON.parse(await readFile(cacheFile(), "utf8")) as Partial<MetricsCache>
+    if (parsed.version === 2 && parsed.matches) cache = parsed as MetricsCache
   } catch {
-    return {}
+    // No cache yet, or an older format: rebuilt as matches are read.
+  }
+  memory = { folder: dataFolder(), cache }
+  return cache
+}
+
+async function writeCache(cache: MetricsCache) {
+  await mkdir(dataFolder(), { recursive: true })
+  await writeFile(cacheFile(), JSON.stringify(cache), "utf8")
+}
+
+/** The same key for a match whether it comes from the live model or an archive's file name. */
+const matchKey = (date: string | undefined, home: string, away: string) => `${date ?? "?"}|${norm(home)}|${norm(away)}`
+const entryKey = (entry: ArchiveEntry) => (entry.date && entry.home && entry.away ? matchKey(entry.date, entry.home, entry.away) : undefined)
+
+function recordOf(model: MatchModel, entry?: ArchiveEntry): MatchRecord {
+  return {
+    matchId: model.matchId,
+    date: model.metadata?.matchDate?.slice(0, 10) ?? entry?.date,
+    home: teamName(model, "home"),
+    away: teamName(model, "away"),
+    metrics: { home: teamMetrics(model, "home"), away: teamMetrics(model, "away") },
+    file: entry?.file,
+    modified: entry?.modified,
   }
 }
 
-/** Which side a team (by name) was in a saved match, if it played. */
-function sideOf(model: MatchModel, team: string): Side | undefined {
-  if (norm(teamName(model, "home")) === norm(team)) return "home"
-  if (norm(teamName(model, "away")) === norm(team)) return "away"
-  return undefined
+async function store(record: MatchRecord, entry?: ArchiveEntry) {
+  const cache = await readCache()
+  const key = (entry && entryKey(entry)) ?? matchKey(record.date, record.home, record.away)
+  cache.matches[key] = record
+  // Also under the model's own names, in case the file name spells them differently.
+  const own = matchKey(record.date, record.home, record.away)
+  if (own !== key) cache.matches[own] = record
+  await writeCache(cache)
+}
+
+const remembered = new Set<string>()
+
+/**
+ * Keeps a finished match's figures, so later reports set figures against it without
+ * reading its archive again (about 6 s each). Cheap to call repeatedly.
+ */
+export async function rememberMatch(model: MatchModel, entry?: ArchiveEntry): Promise<void> {
+  const tag = `${model.matchId}|${entry?.modified ?? "live"}|${dataFolder()}`
+  if (remembered.has(tag) || !model.metadata) return
+  remembered.add(tag)
+  const cache = await readCache()
+  const key = entry ? entryKey(entry) : undefined
+  if (key && cache.matches[key]?.modified === entry?.modified) return
+  try {
+    await store(recordOf(model, entry), entry)
+  } catch {
+    remembered.delete(tag)
+  }
+}
+
+function asCached(record: MatchRecord, side: Side): CachedMatch {
+  return {
+    file: record.file ?? "",
+    modified: record.modified ?? "",
+    matchId: record.matchId,
+    date: record.date,
+    team: side === "home" ? record.home : record.away,
+    opponent: side === "home" ? record.away : record.home,
+    metrics: record.metrics[side],
+  }
+}
+
+/** Archives not yet in the cache, newest first. */
+async function unread(cache: MetricsCache, team?: string): Promise<ArchiveEntry[]> {
+  const wanted = team ? norm(team) : undefined
+  return (await listArchives()).filter((entry) => {
+    if (wanted && entry.home && entry.away && norm(entry.home) !== wanted && norm(entry.away) !== wanted) return false
+    const key = entryKey(entry)
+    const known = key ? cache.matches[key] : undefined
+    if (!known) return !Object.values(cache.matches).some((record) => record.file === entry.file && record.modified === entry.modified)
+    return Boolean(known.file === entry.file && known.modified !== entry.modified)
+  })
+}
+
+async function readInto(entry: ArchiveEntry): Promise<void> {
+  let model: MatchModel
+  try {
+    model = await readArchive(entry)
+  } catch {
+    // Unreadable: remember the file so it is not tried every time.
+    const cache = await readCache()
+    cache.matches[`file|${entry.file}`] = { matchId: "", home: "", away: "", metrics: { home: {}, away: {} }, file: entry.file, modified: entry.modified }
+    await writeCache(cache)
+    return
+  }
+  await store(recordOf(model, entry), entry)
 }
 
 /**
- * The team's figures in its previous saved matches, newest first (up to `limit`),
- * leaving out the match being reported. Archives are filtered by the team names in
- * their file names before anything is read; results are cached.
+ * The team's figures in its previous matches, newest first (up to `limit`), leaving
+ * out the match being reported. Matches already remembered cost nothing; any other
+ * archive with the team in its file name is read once and remembered.
  */
 export async function previousMatches(team: string, excludeMatchId: string, limit = 5): Promise<CachedMatch[]> {
   const cache = await readCache()
-  let changed = false
+  for (const entry of await unread(cache, team)) await readInto(entry)
   const wanted = norm(team)
-  const candidates = (await listArchives()).filter(
-    (entry: ArchiveEntry) => !entry.home || !entry.away || norm(entry.home) === wanted || norm(entry.away) === wanted
-  )
+  const seen = new Set<string>()
   const found: CachedMatch[] = []
-  for (const entry of candidates) {
-    if (found.length >= limit) break
-    const key = `${entry.file}|${team}`
-    let cached = cache[key]
-    if (!cached || cached.modified !== entry.modified) {
-      let model: MatchModel
-      try {
-        model = await readArchive(entry)
-      } catch {
-        continue
-      }
-      const side = sideOf(model, team)
-      cached = {
-        file: entry.file,
-        modified: entry.modified,
-        matchId: model.matchId,
-        date: model.metadata?.matchDate?.slice(0, 10) ?? entry.date,
-        team: side ? teamName(model, side) : "",
-        opponent: side ? teamName(model, other(side)) : "",
-        metrics: side ? teamMetrics(model, side) : {},
-      }
-      // Remembered even when the team did not play, so the file is not read again.
-      cache[key] = cached
-      changed = true
-    }
-    if (!cached.team || cached.matchId === excludeMatchId) continue
-    found.push(cached)
+  for (const record of Object.values(cache.matches)) {
+    if (!record.matchId || record.matchId === excludeMatchId || seen.has(record.matchId)) continue
+    const side: Side | undefined = norm(record.home) === wanted ? "home" : norm(record.away) === wanted ? "away" : undefined
+    if (!side) continue
+    seen.add(record.matchId)
+    found.push(asCached(record, side))
   }
-  if (changed) {
-    await mkdir(dataFolder(), { recursive: true })
-    await writeFile(join(dataFolder(), "match-metrics.json"), JSON.stringify(cache), "utf8")
+  return found.sort((left, right) => (right.date ?? "").localeCompare(left.date ?? "")).slice(0, limit)
+}
+
+/**
+ * Reads saved archives the cache does not have yet, newest first, one at a time with a
+ * pause between, while `idle()` says nothing else needs the server. Each read holds the
+ * server for a few seconds, so this runs only when no live match is being followed.
+ */
+export async function warmMatchCache(idle: () => boolean, options: { max?: number; pauseMs?: number } = {}): Promise<number> {
+  const { max = 10, pauseMs = 2000 } = options
+  let read = 0
+  for (const entry of (await unread(await readCache())).slice(0, max)) {
+    await new Promise((resolve) => setTimeout(resolve, pauseMs))
+    if (!idle()) break
+    await readInto(entry)
+    read += 1
   }
-  return found.sort((left, right) => (right.date ?? "").localeCompare(left.date ?? ""))
+  return read
 }
 
 export type TrendRow = { key: MetricKey; label: string; now: string; average?: string; previous: number[]; verdict?: "better" | "worse" | "same"; unit?: string }

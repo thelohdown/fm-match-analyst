@@ -5,7 +5,7 @@ import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { afterEach, beforeAll, describe, expect, it } from "vitest"
 
-import { checkActions, lastActions, previousMatches, saveActions, teamMetrics, trendRows } from "../src/metrics"
+import { checkActions, lastActions, previousMatches, rememberMatch, saveActions, teamMetrics, trendRows, warmMatchCache } from "../src/metrics"
 import type { MatchModel } from "../src/model"
 import { loadArchive } from "../src/sources"
 
@@ -38,9 +38,31 @@ describe.skipIf(!existsSync(archive))("figures across matches", () => {
     const other = await previousMatches("Chicago", "some-other-match")
     expect(other).toHaveLength(1)
     expect(other[0]).toMatchObject({ team: "Chicago", opponent: "LAFC", date: "2025-12-30" })
-    expect(Object.keys(JSON.parse(readFileSync(join(process.env.FM_ANALYST_DATA_DIR, "match-metrics.json"), "utf8")))).toHaveLength(1)
+    const cache = JSON.parse(readFileSync(join(process.env.FM_ANALYST_DATA_DIR, "match-metrics.json"), "utf8"))
+    expect(cache.version).toBe(2)
+    expect(Object.keys(cache.matches)).toEqual(["2025-12-30|chicago|lafc"])
+    // Either team's figures come from the same record.
+    expect((await previousMatches("LAFC", "some-other-match"))[0]).toMatchObject({ team: "LAFC", opponent: "Chicago" })
     expect(await previousMatches("Seattle", "some-other-match")).toEqual([])
   })
+
+  it("remembers a match it already has, so its archive is never read again", async () => {
+    process.env.FM_ANALYST_DATA_DIR = mkdtempSync(join(tmpdir(), "fm-metrics-"))
+    process.env.FMMATCHLENS_ARCHIVE_DIR = resolve(archive, "..")
+    await rememberMatch(model)
+    const started = performance.now()
+    const other = await previousMatches("Chicago", "some-other-match")
+    expect(performance.now() - started).toBeLessThan(1000)
+    expect(other[0].metrics.fast_breaks_for).toBe(teamMetrics(model, "home").fast_breaks_for)
+  })
+
+  it("fills the cache in the background only while idle", async () => {
+    process.env.FM_ANALYST_DATA_DIR = mkdtempSync(join(tmpdir(), "fm-metrics-"))
+    process.env.FMMATCHLENS_ARCHIVE_DIR = resolve(archive, "..")
+    expect(await warmMatchCache(() => false, { pauseMs: 0 })).toBe(0)
+    expect(await warmMatchCache(() => true, { pauseMs: 0 })).toBe(1)
+    expect(await warmMatchCache(() => true, { pauseMs: 0 })).toBe(0)
+  }, 60_000)
 
   it("calls a figure better or worse only when it moved enough", () => {
     const rows = trendRows(["fast_breaks_against", "xg_for", "possession_pct"], { fast_breaks_against: 13, xg_for: 1.41, possession_pct: 56 }, [
