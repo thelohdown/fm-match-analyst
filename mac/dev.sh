@@ -12,6 +12,8 @@
 #   ./mac/dev.sh snap      ask the probe for a snapshot of every live match right now
 #                          (take it while the game shows the numbers you want to compare)
 #   ./mac/dev.sh health    ask the running plugin's local API whether it is up
+#   ./mac/dev.sh dump      save the local API's answers, the log and the newest match
+#                          archive under local/ (for debugging the capture)
 #   ./mac/dev.sh dashboard open the FMMatchLens dashboard (local/dashboard, built from
 #                          frontend/ with npm if it is not there yet)
 #   ./mac/dev.sh where     show where FM27 and BepInEx were found
@@ -310,6 +312,27 @@ cmd_dashboard() {
   echo "Dashboard opened. It connects to http://127.0.0.1:16726 while FM27 runs with the plugin."
 }
 
+cmd_dump() {
+  need_bepinex
+  local out ep name
+  out="$LOCAL/api/$(date +%Y%m%d-%H%M%S)"
+  mkdir -p "$out"
+  for ep in health match/status match/meta match/current match/momentum/events \
+            "match/momentum/updates?after=0&limit=400" "match/frames?fromTick=0&stride=1200&limit=40" archives; do
+    name="$(printf '%s' "$ep" | tr '/?&=' '____')"
+    curl -sS --max-time 15 "http://127.0.0.1:16726/api/$ep" -o "$out/$name.json" || echo "no answer for /api/$ep"
+  done
+  local archive
+  archive="$(ls -t "$BEPINEX/plugins/FMMatchLens/data/matches"/*.fmlens 2>/dev/null | head -1 || true)"
+  if [ -n "$archive" ]; then
+    mkdir -p "$LOCAL/archives"
+    cp "$archive" "$LOCAL/archives/"
+    echo "newest archive: local/archives/$(basename "$archive")"
+  fi
+  cmd_logs >/dev/null
+  echo "saved the API's answers to ${out#"$REPO"/} and the log to local/logs/latest.log"
+}
+
 cmd_health() {
   curl -sS --max-time 3 "$API" && echo || echo "No answer from $API (is FM27 running with the plugin loaded?)"
 }
@@ -323,6 +346,7 @@ case "${1:-}" in
   snap) cmd_snap ;;
   health) cmd_health ;;
   dashboard) cmd_dashboard ;;
+  dump) cmd_dump ;;
   where) need_game; echo "BepInEx: $BEPINEX" ;;
-  *) sed -n '2,21p' "$0"; exit 1 ;;
+  *) sed -n '2,23p' "$0"; exit 1 ;;
 esac
