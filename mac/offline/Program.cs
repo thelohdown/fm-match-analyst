@@ -12,7 +12,7 @@ using FMMatchLens.Plugin.Memory;
 
 namespace FMMatchLens.MacOffline;
 
-internal static class Program
+internal static partial class Program
 {
     private const BindingFlags AnyInstance = BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public;
 
@@ -96,6 +96,7 @@ internal static class Program
         var uidCapture = uids.GetType().GetMethod("Begin")!
             .Invoke(uids, new object[] { match, record.HomeTeam, record.AwayTeam, record.Tick, Stopwatch.GetTimestamp() });
         var frames = new List<PlayerTickData>();
+        var framePointers = new List<nint>();
         foreach (var (team, count, side, slotOffset) in new[]
                  {
                      (record.HomeTeam, (int)record.HomePlayerCount, TeamSide.Home, 0),
@@ -106,7 +107,37 @@ internal static class Program
             {
                 var matchPlayer = Marshal.ReadIntPtr(team + Offsets.Team.PlayerTable + slot * IntPtr.Size);
                 var frameArgs = new object?[] { matchPlayer, slotOffset + slot, side, record.CurrentBallHolder, uidCapture, null };
-                if ((bool)Call(hook, "TryReadPlayerFrame", frameArgs)!) frames.Add((PlayerTickData)frameArgs[5]!);
+                if ((bool)Call(hook, "TryReadPlayerFrame", frameArgs)!)
+                {
+                    frames.Add((PlayerTickData)frameArgs[5]!);
+                    framePointers.Add(matchPlayer);
+                }
+            }
+        }
+
+        // Tactics, as the tactical sampler reads them (the context is each team's manager object).
+        {
+            var raw = new RawRealtimeTickFrame(0) { Tick = record.Tick, PlayerCount = (byte)Math.Min(frames.Count, RawRealtimeTickFrame.MaxPlayers) };
+            for (var i = 0; i < raw.PlayerCount; i++) raw.Players[i] = frames[i];
+            var pointers = framePointers.Take(raw.PlayerCount).ToArray();
+            EnsurePluginLog();
+            var sampler = new GameMatchTickHook.TacticalStateSampler();
+            var tactics = sampler.Capture(record.HomeTeam, record.AwayTeam, raw, pointers);
+            if (tactics is not null && Environment.GetEnvironmentVariable("FMMATCHLENS_TACTICS_OUT") is { Length: > 0 } tacticsOut)
+            {
+                // The API's own JSON form, for checking the dashboard and analyst decoding.
+                var options = (JsonSerializerOptions)typeof(FMMatchLens.Plugin.Services.LocalApiServer)
+                    .GetField("JsonOptions", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
+                File.WriteAllText(tacticsOut, JsonSerializer.Serialize(tactics, options));
+                Console.WriteLine($"  wrote the tactic as API JSON to {tacticsOut}");
+            }
+            Console.WriteLine("\ntactics:");
+            if (tactics is null) Console.WriteLine("  none read");
+            foreach (var (label, team) in tactics is null ? Array.Empty<(string, TacticalTeamData)>() : new[] { ("home", tactics.Home), ("away", tactics.Away) })
+            {
+                Console.WriteLine($"  {label}: status {team.Status}, processing {DescribeTactic(team.Processing)}, command {(team.Command is null ? "not read" : "read")}");
+                Console.WriteLine($"    players with a formation slot: {team.Players.Count(p => p.TacticSlot is >= 0 and < 11)}, " +
+                                  $"opposition keys: {string.Join(" ", team.Players.Where(p => p.OppositionPositionKey is > 0).Select(p => $"0x{p.OppositionPositionKey:X}"))}");
             }
         }
 
@@ -396,32 +427,14 @@ internal static class ArchiveServer
 {
     public static int Serve(string path, int framesPerSecond)
     {
-        // The plugin's logger lives on its BepInEx plugin class, so BepInEx's IL2CPP assemblies
-        // must load. They are not in this tool's deps.json: look next to the tool, then in the
-        // BepInEx core folder named by FMMATCHLENS_BEPINEX_CORE (./mac/dev.sh serve sets it).
-        var folders = new[] { AppContext.BaseDirectory, Environment.GetEnvironmentVariable("FMMATCHLENS_BEPINEX_CORE") }
-            .Where(folder => !string.IsNullOrEmpty(folder)).Cast<string>().ToArray();
-        System.Runtime.Loader.AssemblyLoadContext.Default.Resolving += (context, name) =>
-        {
-            foreach (var folder in folders)
-            {
-                var candidate = Path.Combine(folder, name.Name + ".dll");
-                if (File.Exists(candidate)) return context.LoadFromAssemblyPath(candidate);
-            }
-
-            return null;
-        };
+        Program.ResolveBepInExAssemblies();
         return ServeCore(path, framesPerSecond);
     }
 
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
     private static int ServeCore(string path, int framesPerSecond)
     {
-        // The plugin logs through BepInEx; give it a log source that prints here.
-        var log = new BepInEx.Logging.ManualLogSource("FMMatchLens");
-        log.LogEvent += (_, e) => Console.WriteLine($"[{e.Level}] {e.Data}");
-        typeof(FMMatchLens.Plugin.Plugin).GetProperty("PluginLog", BindingFlags.Static | BindingFlags.NonPublic)!
-            .SetValue(null, log);
+        Program.EnsurePluginLog();
         if (!FMMatchLens.Plugin.Services.ArchiveReader.TryScan(path, 0, null, 1, int.MaxValue, true, out var result))
         {
             Console.WriteLine($"could not read {path}");
@@ -496,5 +509,63 @@ internal static class ArchiveServer
         for (var i = 0; i < raw.MomentumCount; i++) raw.Momentum[i] = frame.Momentum[i];
         raw.RollingMomentumCount = (byte)Math.Min(frame.RollingMomentum.Count, RawRealtimeTickFrame.MaxRollingMomentumPoints);
         for (var i = 0; i < raw.RollingMomentumCount; i++) raw.RollingMomentum[i] = frame.RollingMomentum[i];
+    }
+}
+
+internal static partial class Program
+{
+    private static string DescribeTactic(TacticalConfiguration? config)
+    {
+        if (config is null) return "not read";
+        var name = config.NameUtf8 is { Length: > 0 } bytes ? System.Text.Encoding.UTF8.GetString(bytes) : "(no name)";
+        string Shape(TacticalPosition[] positions) => string.Join(" ", positions.Select(p => TacticalFormationDecoder.DecodePosition(p.PositionMask) ?? "?"));
+        return $"\"{name}\" mentality {config.Mentality}, in possession [{Shape(config.InPossession)}], out of possession [{Shape(config.OutOfPossession)}], " +
+               $"slot map {string.Join(",", config.PhaseSlotMapping)}, overrides {(config.InPossessionOverrides is null ? "?" : config.InPossessionOverrides.Length.ToString())}/" +
+               $"{(config.OutOfPossessionOverrides is null ? "?" : config.OutOfPossessionOverrides.Length.ToString())}";
+    }
+}
+
+internal static partial class Program
+{
+    private static bool _resolverInstalled;
+
+    /// <summary>
+    /// The plugin's logger lives on its BepInEx plugin class, so BepInEx's IL2CPP assemblies
+    /// must load. They are not in this tool's deps.json: look next to the tool, then in the
+    /// BepInEx core folder named by FMMATCHLENS_BEPINEX_CORE (./mac/dev.sh serve sets it).
+    /// </summary>
+    internal static void ResolveBepInExAssemblies()
+    {
+        if (_resolverInstalled) return;
+        _resolverInstalled = true;
+        var folders = new[] { AppContext.BaseDirectory, Environment.GetEnvironmentVariable("FMMATCHLENS_BEPINEX_CORE") }
+            .Where(folder => !string.IsNullOrEmpty(folder)).Cast<string>().ToArray();
+        System.Runtime.Loader.AssemblyLoadContext.Default.Resolving += (context, name) =>
+        {
+            foreach (var folder in folders)
+            {
+                var candidate = Path.Combine(folder, name.Name + ".dll");
+                if (File.Exists(candidate)) return context.LoadFromAssemblyPath(candidate);
+            }
+
+            return null;
+        };
+    }
+
+    /// <summary>Gives the plugin a log source that prints to the console.</summary>
+    internal static void EnsurePluginLog()
+    {
+        ResolveBepInExAssemblies();
+        SetPluginLog();
+    }
+
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private static void SetPluginLog()
+    {
+        var property = typeof(FMMatchLens.Plugin.Plugin).GetProperty("PluginLog", BindingFlags.Static | BindingFlags.NonPublic)!;
+        if (property.GetValue(null) is not null) return;
+        var log = new BepInEx.Logging.ManualLogSource("FMMatchLens");
+        log.LogEvent += (_, e) => Console.WriteLine($"[{e.Level}] {e.Data}");
+        property.SetValue(null, log);
     }
 }

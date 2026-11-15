@@ -3161,8 +3161,6 @@ internal sealed class GameMatchTickHook : IDisposable
 
     private TacticalStateSampler? GetTacticalSampler(nint match, long generation)
     {
-        // macOS: tactics structures are not mapped yet.
-        if (Offsets.IsMac) return null;
         if (_activeSession is { } session)
         {
             if (!session.Invalidated && session.Animated == match && session.Generation == generation) return session.Tactics;
@@ -3515,6 +3513,7 @@ internal sealed class GameMatchTickHook : IDisposable
             if (context == 0) return new("unavailable", null, null, null, null, players.ToArray());
             var processing = ReadConfiguration(context + Tactics.Context.ProcessingConfiguration);
             var command = ReadConfiguration(context + Tactics.Context.CommandConfiguration);
+            if (Offsets.IsMac) MacTacticsDiagnostics.LogOnce(context, side, processing, command, players);
             var personal = ReadBytes(context + Tactics.Context.PersonalOpposition, Tactics.PersonalOppositionCount * Tactics.PersonalOppositionRecordSize);
             TacticalOppositionPosition[]? positions = null;
             if (_reader.TryReadByte(context + Tactics.Context.PositionOppositionCount, out var count) && count <= Tactics.PositionOppositionCapacity &&
@@ -3540,6 +3539,11 @@ internal sealed class GameMatchTickHook : IDisposable
         private TacticalConfiguration? ReadConfiguration(nint address)
         {
             if (!VirtualMemory.IsReadable(address, Tactics.Configuration.Size)) return null;
+            // The macOS layout is derived from snapshots; refuse a block whose formations
+            // do not decode rather than report a made-up tactic.
+            if (Offsets.IsMac && (!MacTacticsDiagnostics.LooksLikeFormation(address + Tactics.Configuration.InPossession) ||
+                                  !MacTacticsDiagnostics.LooksLikeFormation(address + Tactics.Configuration.OutOfPossession)))
+                return null;
             byte[]? name = null;
             var text = Marshal.ReadIntPtr(address + Tactics.Configuration.Name);
             if (text == default) name = Array.Empty<byte>();
@@ -3580,6 +3584,7 @@ internal sealed class GameMatchTickHook : IDisposable
 
         private TacticalPersonalOverride[]? ReadOverrides(nint tree)
         {
+            if (Offsets.IsMac) return ReadMacOverrides(tree);
             if (!_reader.TryReadPointer(tree + Tactics.OverrideTree.Header, out var header) || header == 0 ||
                 !_reader.TryReadUInt64(tree + Tactics.OverrideTree.Count, out var declaredCount) || declaredCount > Tactics.PersonalOppositionCount ||
                 !VirtualMemory.IsReadable(header, Tactics.OverrideTree.HeaderSize)) return null;
@@ -3597,6 +3602,35 @@ internal sealed class GameMatchTickHook : IDisposable
                 result.Add(new(unchecked((uint)Marshal.ReadInt32(node + Tactics.OverrideTree.PersonKey)), ReadPositionsDirect(begin, count)));
                 pending.Push(Marshal.ReadIntPtr(node + Tactics.OverrideTree.Left));
                 pending.Push(Marshal.ReadIntPtr(node + Tactics.OverrideTree.Right));
+            }
+            if ((ulong)result.Count != declaredCount) return null;
+            return result.OrderBy(value => value.PersonKey).ToArray();
+        }
+
+        /// <summary>Walks a libc++ std::map of personal overrides (see Offsets.Tactics.MacOverrideTree).</summary>
+        private TacticalPersonalOverride[]? ReadMacOverrides(nint map)
+        {
+            if (!VirtualMemory.IsReadable(map, 0x18) ||
+                !_reader.TryReadUInt64(map + Tactics.MacOverrideTree.Size, out var declaredCount) || declaredCount > Tactics.PersonalOppositionCount)
+                return null;
+            var endNode = map + Tactics.MacOverrideTree.Root;
+            var root = Marshal.ReadIntPtr(endNode);
+            var begin = Marshal.ReadIntPtr(map + Tactics.MacOverrideTree.Begin);
+            // An empty map points its begin at its own end node and has no root.
+            if (declaredCount == 0) return root == 0 && begin == endNode ? Array.Empty<TacticalPersonalOverride>() : null;
+            var result = new List<TacticalPersonalOverride>();
+            var pending = new Stack<nint>();
+            var visited = new HashSet<nint>();
+            pending.Push(root);
+            while (pending.Count != 0)
+            {
+                var node = pending.Pop();
+                if (node == 0) continue;
+                if (!visited.Add(node) || visited.Count > Tactics.PersonalOppositionCount || !VirtualMemory.IsReadable(node, Tactics.MacOverrideTree.NodeSize)) return null;
+                if (!TryVector(node + Tactics.MacOverrideTree.Positions, Tactics.Position.Size, Tactics.FormationSlotCount, out var positions, out var count)) return null;
+                result.Add(new(unchecked((uint)Marshal.ReadInt32(node + Tactics.MacOverrideTree.PersonKey)), ReadPositionsDirect(positions, count)));
+                pending.Push(Marshal.ReadIntPtr(node + Tactics.MacOverrideTree.Left));
+                pending.Push(Marshal.ReadIntPtr(node + Tactics.MacOverrideTree.Right));
             }
             if ((ulong)result.Count != declaredCount) return null;
             return result.OrderBy(value => value.PersonKey).ToArray();

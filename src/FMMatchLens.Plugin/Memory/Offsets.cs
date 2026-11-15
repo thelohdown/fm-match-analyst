@@ -346,7 +346,7 @@ internal static class Offsets
 
     public static class MatchPlayer
     {
-        public const int OppositionPositionKey = 0xCE0;
+        public static readonly int OppositionPositionKey = Pick(0xCE0, 0xCD8);
         public const int TacticalRosterSlot = 0x1E27;
         public const int TacticalFormationSlot = 0x1E51;
         public static readonly int Person = Pick(0x28, 0x20);
@@ -769,29 +769,33 @@ internal static class Offsets
         public const int PersonalOppositionRecordSize = 3;
         public const int PositionOppositionCapacity = 25;
 
+        // macOS (FM27 27.0.1, from graph snapshots of two matches): the tactic block sits
+        // 0x18 earlier in the manager context, and inside it each std::map is 24 bytes
+        // (libc++: begin, root, size) instead of MSVC's 16, which moves everything from
+        // the formations on. The command copy follows two blocks on, as on Windows.
         public static class Context
         {
-            public const int ProcessingConfiguration = 0x1818;
-            public const int CommandConfiguration = 0x2768;
-            public const int PersonalOpposition = 0x16F8;
-            public const int PositionOppositionCount = 0x1748;
-            public const int PositionOppositionEntries = 0x174C;
+            public static readonly int ProcessingConfiguration = Pick(0x1818, 0x1800);
+            public static readonly int CommandConfiguration = Pick(0x2768, 0x1800 + 2 * 0x7C0);
+            public static readonly int PersonalOpposition = Pick(0x16F8, 0x16E0);
+            public static readonly int PositionOppositionCount = Pick(0x1748, 0x1730);
+            public static readonly int PositionOppositionEntries = Pick(0x174C, 0x1734);
         }
 
         public static class Configuration
         {
-            public const int Size = 0x7A8;
+            public static readonly int Size = Pick(0x7A8, 0x7C0);
             public const int TeamInstructions = 0xE0;
             public const int TeamInstructionsSize = 16;
             public const int Name = 0xF8;
             public const int StyleKey = 0x100;
             public const int AdditionalState = 0x104;
             public const int Mentality = 0x105;
-            public const int InPossession = 0x118;
-            public const int OutOfPossession = 0x438;
-            public const int InPossessionOverrides = 0x758;
-            public const int OutOfPossessionOverrides = 0x768;
-            public const int PhaseSlotMapping = 0x79C;
+            public static readonly int InPossession = Pick(0x118, 0x120);
+            public static readonly int OutOfPossession = Pick(0x438, 0x440);
+            public static readonly int InPossessionOverrides = Pick(0x758, 0x760);
+            public static readonly int OutOfPossessionOverrides = Pick(0x768, 0x778);
+            public static readonly int PhaseSlotMapping = Pick(0x79C, 0x7B4);
         }
 
         public static class Position
@@ -819,6 +823,24 @@ internal static class Offsets
             public const int Size = 0x10;
             public const int InstructionId = 0;
             public const int RoleMask = 8;
+        }
+
+        /// <summary>
+        /// libc++ std::map, used on macOS: the map is { begin node, end node (whose left
+        /// child is the root), size }; a node is { left, right, parent, is_black, value }.
+        /// Leaves are null rather than a sentinel. The value (person key, then the
+        /// positions vector) sits at the same offsets as in the MSVC node.
+        /// </summary>
+        public static class MacOverrideTree
+        {
+            public const int Begin = 0;
+            public const int Root = 8;
+            public const int Size = 0x10;
+            public const int NodeSize = 0x40;
+            public const int Left = 0;
+            public const int Right = 8;
+            public const int PersonKey = 0x20;
+            public const int Positions = 0x28;
         }
 
         public static class OverrideTree

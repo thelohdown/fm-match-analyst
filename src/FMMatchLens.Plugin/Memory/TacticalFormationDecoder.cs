@@ -108,7 +108,7 @@ internal static class TacticalFormationDecoder
             DecodeDuty(roleDuty));
     }
 
-    private static string? DecodePosition(uint mask)
+    internal static string? DecodePosition(uint mask)
     {
         var basePosition = mask & BasePositionMask;
         if (basePosition == 0) return null;

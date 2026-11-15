@@ -23,7 +23,8 @@ On macOS the plugin now runs **FMMatchLens's normal capture** with a macOS offse
 | In-match condition and sharpness | Captured (from the per-match stats object, laid out as on Windows) |
 | Match clock shown by the dashboard in the second half | **Off by up to a couple of minutes**: the macOS `DisplayTick` field (0x15454) does not restart at 45:00. FM's own event records show its clock is engine tick minus first-half stoppage; the MCP server (`mcp/`) computes it that way |
 | Attributes, position familiarity, morale, ability, season stats | **Off on macOS**: the ActualPlayer part of the player record is laid out differently and not mapped |
-| Tactics, rating research (rating engine internals) | **Off on macOS**: not mapped |
+| Tactics: formations in and out of possession, roles and duties, mentality, style, name, team instructions, the phase slot map, opposition instructions, each player's formation slot and opposition key | Mapped from graph snapshots of two matches: Chicago's "Wing Play" decodes to 4-2-3-1 / 4-3-3 DM Wide with FM's own role names and a coherent set of wing-play instructions (layout below). The command copy and the player-instruction lists are confirmed by the `macOS tactics check` log line on the first live match; until then the analyst and dashboard use the applied ("processing") copy |
+| Rating research (rating engine internals) | **Off on macOS**: not mapped |
 
 `Memory/Offsets.cs` keeps one table: fields that differ on macOS are `static readonly`
 and chosen at start-up (`Offsets.IsMac`); everything still `const` is the same on both.
@@ -65,6 +66,31 @@ team stats, event source, player frames, team/player/competition metadata). Give
 `local/truth/*.json` file of what FM showed, it checks the results. For the full-time
 snapshot of Chicago 1-0 Atlanta United 2 every check passes: score, shots, shots on
 target, xG, passes, passes completed, tackles won, fouls, distance, and all 22 ratings.
+
+### Tactics layout (macOS, FM27 27.0.1)
+
+The tactic lives in each team's manager context (`Team.Manager`, 0x640), as on
+Windows, in two configuration blocks: "processing" (applied in the match) and
+"command" (set by the manager). Differences from Windows:
+
+| Field | Windows | macOS |
+| --- | --- | --- |
+| Processing configuration in the context | 0x1818 | 0x1800 |
+| Command configuration | 0x2768 | 0x1800 + 2 x 0x7C0 (to confirm) |
+| Personal opposition (26 x 3 bytes) | 0x16F8 | 0x16E0 |
+| Position opposition count / entries | 0x1748 / 0x174C | 0x1730 / 0x1734 |
+| Configuration size | 0x7A8 | 0x7C0 |
+| In / out of possession positions (11 x 0x48) | 0x118 / 0x438 | 0x120 / 0x440 |
+| Player override maps | 0x758 / 0x768 (MSVC map, 16 bytes) | 0x760 / 0x778 (libc++ map, 24 bytes) |
+| Phase slot mapping (11 bytes) | 0x79C | 0x7B4 |
+| `MatchPlayer.OppositionPositionKey` | 0xCE0 | 0xCD8 |
+
+Team instructions (0xE0), name (0xF8), style key (0x100), mentality (0x105), the
+position record (mask, role/duty, instruction vectors) and the player's roster
+and formation slots (0x1E27 / 0x1E51) are as on Windows. libc++ maps are
+{ begin, root, size } with nodes { left, right, parent, colour, key, value }.
+The plugin refuses a block whose formations do not decode (goalkeeper first,
+known positions), and walks override maps with the same bounds as on Windows.
 
 ## One-time setup
 
