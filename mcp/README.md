@@ -30,7 +30,7 @@ is supplied through MCP instructions, so no separate Codex prompt is required.
 To inspect configuration without installing, run `./mac/dev.sh mcp codex-config`.
 If the server is already built, `python3 mac/setup_codex.py --install` registers
 it without downloading dependencies or rebuilding.
-Set `FMMATCHLENS_API`, `FMMATCHLENS_ARCHIVE_DIR`, or `FM_ANALYST_DATA_DIR` before
+Set `FMMATCHLENS_API`, `FMMATCHLENS_ARCHIVE_DIR`, `FM_ANALYST_DATA_DIR` or `FM_ANALYST_DETAIL` before
 setup to override the defaults. The game archive locations are still searched
 alongside the configured archive directory. Codex must run the server locally
 on the Mac to reach the game's loopback API and local files.
@@ -95,6 +95,19 @@ for, cite numbers and minutes, and suggest only changes FM lets you make.
 There are also five prompts: `half_time_briefing`, `who_to_sub`,
 `match_review`, and the two printable reports, `post_match_report` and
 `half_time_report`.
+
+### Level of help
+
+Three levels, so the analyst can be a second opinion or a full analyst:
+
+- **Hints**: tells you whether the numbers back what you think you are seeing,
+  or points you where to look, without handing you a plan.
+- **Coach** (default): the answer, the evidence by moment, and up to three changes.
+- **Full analysis**: every moment for both teams, why it is happening, the
+  options with their trade-offs, and what to check after a change.
+
+Pick the default in the extension's settings (Level of help) or with
+`FM_ANALYST_DETAIL`, and switch in any chat by saying "just hints" or "go deep".
 
 ### Printable reports
 
@@ -201,7 +214,8 @@ Codex setup preserves existing configuration.
 Environment: `FMMATCHLENS_API` (default `http://127.0.0.1:16726`),
 `FMMATCHLENS_ARCHIVE_DIR` (extra archive folders, `:`-separated), and
 `FM_ANALYST_LIVE_WAIT_MS` (how long a tool waits for the live catch-up, default
-40000) and `FM_ANALYST_DATA_DIR` (where feedback is saved).
+40000), `FM_ANALYST_DATA_DIR` (where feedback is saved) and `FM_ANALYST_DETAIL`
+(the default level of help: `hints`, `coach` or `full`).
 
 ## Known gaps
 

@@ -31,6 +31,7 @@ def main():
             "FMMATCHLENS_API": os.environ.get("FMMATCHLENS_API") or "http://127.0.0.1:16726",
             "FMMATCHLENS_ARCHIVE_DIR": os.environ.get("FMMATCHLENS_ARCHIVE_DIR") or str(repo / "local/archives"),
             "FM_ANALYST_DATA_DIR": os.environ.get("FM_ANALYST_DATA_DIR") or str(Path.home() / "Documents/FM Match Analyst"),
+            "FM_ANALYST_DETAIL": os.environ.get("FM_ANALYST_DETAIL") or "coach",
         },
     }
     # JSON string escaping is also valid for these TOML basic strings.

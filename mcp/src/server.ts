@@ -13,7 +13,8 @@ import { defaultRoleWindow, roleReport } from "./roles"
 import { chanceStories } from "./sequences"
 import { subPlan } from "./subs"
 import { checkData, dataWarning } from "./checks"
-import { type CarryItem, checkActions, lastActions, METRIC_KEYS, METRICS, previousMatches, saveActions, teamMetrics } from "./metrics"
+import { DETAIL_LEVELS, defaultDetail, detailInstructions } from "./detail"
+import { type CarryItem, checkActions, lastActions, METRIC_KEYS, METRICS, previousMatches, rememberMatch, saveActions, teamMetrics, warmMatchCache } from "./metrics"
 import { setting } from "./env"
 import { saveFeedback } from "./feedback"
 import { clockLabel } from "./clock"
@@ -30,9 +31,17 @@ const LIVE_WAIT_MS = Number(process.env.FM_ANALYST_LIVE_WAIT_MS ?? 40_000)
 
 type Selection = { kind: "auto" } | { kind: "live" } | { kind: "archive"; entry: ArchiveEntry }
 
+const WARM_DELAY_MS = 20_000
+
 export function createServer(options: { apiUrl?: string; startLive?: boolean } = {}) {
   const live = new LiveSource(options.apiUrl || setting("FMMATCHLENS_API") || DEFAULT_API)
-  if (options.startLive !== false) live.start()
+  if (options.startLive !== false) {
+    live.start()
+    // Fill the cross-match figures in the background while no match is being followed,
+    // so the first post-match report never waits on old archives.
+    const idle = () => live.status?.status !== "live"
+    setTimeout(() => void warmMatchCache(idle).catch(() => undefined), WARM_DELAY_MS).unref()
+  }
   let selection: Selection = { kind: "auto" }
 
   type Current = { model: MatchModel; source: views.SourceInfo; notes: string[] }
@@ -40,6 +49,7 @@ export function createServer(options: { apiUrl?: string; startLive?: boolean } =
   async function current(): Promise<Current | { error: string }> {
     if (selection.kind === "archive") {
       const model = await loadArchive(selection.entry)
+      void rememberMatch(model, selection.entry).catch(() => undefined)
       return { model, source: { kind: "archive", detail: selection.entry.file }, notes: [] }
     }
     const caughtUp = await live.ready(LIVE_WAIT_MS)
@@ -60,6 +70,7 @@ export function createServer(options: { apiUrl?: string; startLive?: boolean } =
             "Tell the user; to analyse the game, stop the replay (Ctrl+C in its terminal) and start or resume the match in FM."
         )
       }
+      if (live.status?.status === "ended" && caughtUp && !live.replayOf) void rememberMatch(live.model).catch(() => undefined)
       return { model: live.model, source: { kind: "live", detail: live.status?.status ?? "unknown", replayOf: live.replayOf }, notes }
     }
     if (selection.kind === "live") {
@@ -74,6 +85,7 @@ export function createServer(options: { apiUrl?: string; startLive?: boolean } =
       }
     }
     const model = await loadArchive(newest)
+    void rememberMatch(model, newest).catch(() => undefined)
     return {
       model,
       source: { kind: "archive", detail: newest.file },
@@ -97,19 +109,19 @@ export function createServer(options: { apiUrl?: string; startLive?: boolean } =
     }
   }
 
-  const server = new McpServer({ name: "fm-match-analyst", version: VERSION }, { instructions: guide })
+  const server = new McpServer({ name: "fm-match-analyst", version: VERSION }, { instructions: guide + detailInstructions() })
 
   const readOnly = { readOnlyHint: true, idempotentHint: true, openWorldHint: false }
   const windowFields = {
-    half: z.enum(["first", "second", "extra"]).optional().describe("Only this half (extra = extra time)."),
-    from_minute: z.number().int().min(0).max(130).optional().describe("First match minute to include (FM minutes; first-half stoppage counts as 45, the second half starts at 46)."),
-    to_minute: z.number().int().min(0).max(130).optional().describe("Last match minute to include."),
-    last_minutes: z.number().int().min(1).max(130).optional().describe("Only the most recent N minutes of play."),
+    half: z.enum(["first", "second", "extra"]).optional().describe("extra = extra time."),
+    from_minute: z.number().int().min(0).max(130).optional().describe("FM minutes: first-half stoppage is 45, the second half starts at 46."),
+    to_minute: z.number().int().min(0).max(130).optional(),
+    last_minutes: z.number().int().min(1).max(130).optional().describe("The most recent N minutes."),
   }
   const team = z
     .enum(["mine", "opponent", "home", "away", "both"])
     .optional()
-    .describe("Whose data: mine (the user's team), opponent, home, away or both (default).")
+    .describe("mine = the user's team; default both.")
   const toWindow = (args: { half?: "first" | "second" | "extra"; from_minute?: number; to_minute?: number; last_minutes?: number }) => ({
     half: args.half,
     fromMinute: args.from_minute,
@@ -140,10 +152,15 @@ export function createServer(options: { apiUrl?: string; startLive?: boolean } =
         "out of possession (block and line height, where the opponent gets in, pressing, duels); transitions (regains, fast breaks, losses, counter-pressing, " +
         "shots within 15 s either way); set pieces; whether the tactic's team instructions are happening; shots in the last 20 minutes with how each came about; " +
         "who is tiring, fading, struggling or standing out; tactics with recent changes; whether your latest change is working (before against after); how each goal came about; roles and player instructions that are clearly not happening; both shapes as actually played and the matchups that favour the opponent; the top substitution candidates; the bench; the last 10 minutes' events. The last 15 minutes are set against earlier in the half for both teams.",
-      inputSchema: {},
+      inputSchema: {
+        detail: z
+          .enum(DETAIL_LEVELS)
+          .optional()
+          .describe("Level of help the user wants in this chat (default: the install's). hints returns only the game state, what stands out and your last change."),
+      },
       annotations: readOnly,
     },
-    async () => withMatch(({ model, source }) => briefing(model, source, checkData(model)))
+    async ({ detail }) => withMatch(({ model, source }) => briefing(model, source, checkData(model), detail ?? defaultDetail()))
   )
 
   server.registerTool(
@@ -469,13 +486,9 @@ export function createServer(options: { apiUrl?: string; startLive?: boolean } =
     {
       title: "Build a printable report",
       description:
-        "Only when the user asks for a report, one-pager, sheet or something to print or keep. Builds the printable post-match report (kind post_match, two pages: page 1, what this means for us: " +
-        "a headline, three takeaways tagged keep, fix or try with the action for next match, the actions to carry forward (saved and checked next match), each key figure against the last " +
-        "five saved matches, last match's actions checked, and the player outlook; page 2, the evidence: match flow with xG and momentum, shot maps, the moments of the game, both teams' " +
-        "plans against what happened, average positions with passing links, and the player table) or the half-time sheet " +
-        "(kind half_time: three decisions for the second half, how the half turned, what the opponent is doing, the plan so far, players to watch with bench options), " +
-        "and saves it as one HTML page to open in a browser and print or save as PDF. Every number and chart is worked out from the match; you write only the lines that need judgement, " +
-        "so do the analysis first (get_briefing, get_phases, get_tactic for both teams, get_events, get_players). Building it again for the same match replaces the file.",
+        "Only when the user asks for a report or something to print or keep. Builds the printable post-match report (kind post_match: page 1, what this " +
+        "means for us; page 2, the evidence) or the half-time sheet (kind half_time), saved as one HTML page; building it again replaces the file. Every number " +
+        "and chart is worked out from the match; you write only the lines that need judgement, so do the analysis first.",
       inputSchema: {
         kind: z.enum(["post_match", "half_time"]).describe("post_match: the one-pager after full time; half_time: the sheet at the break."),
         verdict: z

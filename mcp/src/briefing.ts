@@ -5,6 +5,7 @@
 // instructions are happening, then the people (who is tiring or struggling, the
 // bench) and the latest events.
 
+import { type DetailLevel, DETAIL_MEANS } from "./detail"
 import { decodeTacticalSnapshot } from "@/components/formation/tactics"
 import type { XgShotPoint } from "@/types/match"
 
@@ -65,7 +66,7 @@ function briefingWindows(model: MatchModel) {
   return { recent, earlier, whole: model.select({}) }
 }
 
-export function briefing(model: MatchModel, source: SourceInfo, check: { ok: boolean; problems: string[] }) {
+export function briefing(model: MatchModel, source: SourceInfo, check: { ok: boolean; problems: string[] }, detail: DetailLevel = "coach") {
   const state = matchState(model, source)
   const user = model.userSide()
   const sides: Side[] = user ? [user, other(user)] : ["home", "away"]
@@ -207,6 +208,26 @@ export function briefing(model: MatchModel, source: SourceInfo, check: { ok: boo
     })
   )
 
+  const levelOfHelp = { level: detail, means: DETAIL_MEANS[detail] }
+  if (detail === "hints") {
+    return {
+      match: state.score,
+      clock: state.clock,
+      period: state.period,
+      status: state.status,
+      youManage: state.youManage,
+      source: state.source,
+      dataCheck: check.ok ? "passed" : check.problems,
+      levelOfHelp,
+      gameState,
+      standsOut,
+      yourLastChange: user ? latestChange(model, user) : undefined,
+      legend:
+        "Hints level: only the game state, what the numbers flag and your latest change. To check a specific read, use get_phases, get_players or get_events " +
+        "for that stretch or player; call get_briefing with detail coach for the whole picture.",
+    }
+  }
+
   return {
     match: state.score,
     clock: state.clock,
@@ -215,6 +236,7 @@ export function briefing(model: MatchModel, source: SourceInfo, check: { ok: boo
     youManage: state.youManage,
     source: state.source,
     dataCheck: check.ok ? "passed" : check.problems,
+    levelOfHelp,
     gameState,
     standsOut,
     inPossession: moment(inPossessionView),

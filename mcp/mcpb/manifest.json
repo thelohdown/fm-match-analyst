@@ -27,7 +27,8 @@
       "env": {
         "FMMATCHLENS_API": "${user_config.api_url}",
         "FMMATCHLENS_ARCHIVE_DIR": "${user_config.archive_dir}",
-        "FM_ANALYST_DATA_DIR": "${user_config.data_dir}"
+        "FM_ANALYST_DATA_DIR": "${user_config.data_dir}",
+        "FM_ANALYST_DETAIL": "${user_config.detail_level}"
       }
     }
   },
@@ -49,6 +50,13 @@
       "type": "directory",
       "title": "Data folder",
       "description": "Where your verdicts on answers (feedback.jsonl) and printable match reports (reports/) are saved. Leave empty for Documents/FM Match Analyst.",
+      "required": false
+    },
+    "detail_level": {
+      "type": "string",
+      "title": "Level of help",
+      "description": "How much the analyst says by default: hints (confirms or challenges your own read, points where to look), coach (the answer, the evidence and up to three changes) or full (everything, with the why and trade-offs). You can switch in any chat.",
+      "default": "coach",
       "required": false
     }
   },
