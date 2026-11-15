@@ -9,6 +9,8 @@
 #   ./mac/dev.sh build     build the plugin (needs the .NET SDK, 10 or newer)
 #   ./mac/dev.sh install   build, then copy the plugin into FM27's BepInEx folder
 #   ./mac/dev.sh logs      copy BepInEx's log into local/logs and show plugin lines
+#   ./mac/dev.sh snap      ask the probe for a snapshot of every live match right now
+#                          (take it while the game shows the numbers you want to compare)
 #   ./mac/dev.sh health    ask the running plugin's local API whether it is up
 #   ./mac/dev.sh where     show where FM27 and BepInEx were found
 #
@@ -248,6 +250,30 @@ cmd_bepinex() {
   fi
 }
 
+cmd_snap() {
+  need_bepinex
+  local dir="$BEPINEX/plugins/FMMatchLens/data/mac-probe" log="$BEPINEX/LogOutput.log"
+  local before now i
+  mkdir -p "$dir"
+  before="$(grep -c "Graph snapshot (manual)" "$log" 2>/dev/null || true)"
+  touch "$dir/snapshot-now"
+  echo "Snapshot requested; it is taken on the match's next step."
+  for i in $(seq 1 20); do
+    sleep 1
+    now="$(grep -c "Graph snapshot (manual)" "$log" 2>/dev/null || true)"
+    if [ "${now:-0}" -gt "${before:-0}" ]; then
+      sleep 2
+      now="$(grep -c "Graph snapshot (manual)" "$log" 2>/dev/null || true)"
+      echo "Saved $(( now - before )) snapshot(s) at $(date +%H:%M:%S)."
+      cmd_logs >/dev/null
+      echo "Copied to local/probe."
+      return 0
+    fi
+  done
+  echo "No snapshot yet: the match is probably paused. Resume it for a second and it will be taken;"
+  echo "then run ./mac/dev.sh logs to copy it."
+}
+
 cmd_health() {
   curl -sS --max-time 3 "$API" && echo || echo "No answer from $API (is FM27 running with the plugin loaded?)"
 }
@@ -258,7 +284,8 @@ case "${1:-}" in
   build) cmd_build ;;
   install) cmd_install ;;
   logs) cmd_logs ;;
+  snap) cmd_snap ;;
   health) cmd_health ;;
   where) need_game; echo "BepInEx: $BEPINEX" ;;
-  *) sed -n '2,17p' "$0"; exit 1 ;;
+  *) sed -n '2,19p' "$0"; exit 1 ;;
 esac

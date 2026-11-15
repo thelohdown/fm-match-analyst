@@ -106,9 +106,28 @@ ball position read correctly at the demo's offsets above. From live graph snapsh
 | MatchPlayer.PositionXAlt / YAlt | 0x80 / 0x84 | same | near PositionX/Y for players on the pitch |
 | (match) player list | ? | 0x14ED0 | the same player pointers, both teams |
 
-Match player objects are 0x1E60 bytes apart in memory. `Person` (0x28) and
-`ShirtName` (0x38) hold 4-byte aligned pointers on macOS; the next probe follows them.
-Each team object is 0x750 bytes.
+Match player objects are 0x1E60 bytes apart in memory. Each team object is 0x750 bytes.
+
+Names and the player record (FM strings: int32 byte length, then UTF-8 text):
+
+| Field | Windows | macOS | Evidence |
+| --- | --- | --- | --- |
+| MatchPlayer full name (string) | ? | 0x28 | "Chris Brady" |
+| MatchPlayer surname (string) | ? | 0x30 | "Brady" |
+| MatchPlayer.ShirtName (string) | 0x38 | 0x38 | "Brady, C" |
+| MatchPlayer.Person | 0x28 | 0x20 | points into the player record, P below |
+| Person.Uid | 0x0C | P+0x0C | same 32-bit ID also at MatchPlayer+0x48 |
+| Person.FirstName / SecondName / CommonName / Nation | 0x50 / 0x58 / 0x60 / 0x68 | P-0xF0 / -0xE8 / -0xE0 / -0xD8 | pointers; CommonName empty for most |
+| Person.City / DateOfBirth / FullContract / Traits | 0x80 / 0x88 / 0xA8 / 0xC0 | P-0xC0 / -0xB8 / -0x98 / -0x80 | DOB 2004, day 63 for Chris Brady |
+
+The record is laid out differently from Windows (Itanium rather than MSVC ABI): it is a
+0x3A8-byte object whose vtables sit at P-0x110, P and P+0x20, so the Windows block that
+starts at FirstName lands 0xF0 before P, while the ID stays at P+0x0C. An attribute-like
+byte block (values up to ~70) sits at P+0x168..0x1AF. None of these are mapped into the
+capture code yet.
+
+`./mac/dev.sh snap` asks the probe for a snapshot of every live match on its next step,
+so numbers the game is showing (player stats, ratings) can be matched to memory.
 
 ## Finding the hook
 

@@ -56,9 +56,11 @@ internal sealed class MacMatchProbe
     private const int MaxMatchChildren = 64;
     private const int MaxTeamChildren = 160;
     private const int MaxPlayerChildren = 12;
-    private const int MaxWindowChildren = 8;
+    private const int MaxWindowChildren = 24;
     private const int MaxRecords = 4000;
     private const int ShirtNameCandidate = 0x38;
+    private const string TriggerFileName = "snapshot-now";
+    private const int MaxManualSnapshots = 40;
     private const uint GraphMagic = 0x47504D46; // "FMPG"
     private const uint GraphVersion = 1;
     private static readonly TimeSpan LogInterval = TimeSpan.FromSeconds(5);
@@ -72,6 +74,9 @@ internal sealed class MacMatchProbe
     private Timer? _retryTimer;
     private int _installing;
     private int _snapshots;
+    private int _manualSnapshots;
+    private int _manualGeneration;
+    private long _nextTriggerCheck;
     private bool _rejected;
     private bool _waitLogged;
     private int _failuresLogged;
@@ -205,6 +210,19 @@ internal sealed class MacMatchProbe
                 PluginLogger.Info(Describe(match, state, tick));
             }
 
+            // On demand: every live match takes one snapshot after a trigger file appears.
+            CheckTrigger();
+            var generation = Volatile.Read(ref _manualGeneration);
+            if (state.ManualGeneration != generation && calls >= SnapshotAfterCalls)
+            {
+                state.ManualGeneration = generation;
+                if (Interlocked.Increment(ref _manualSnapshots) <= MaxManualSnapshots)
+                {
+                    DeepSnapshot(match, tick ?? -1, targetTick, "manual");
+                    return;
+                }
+            }
+
             // FM advances many matches at once; wait until a match has run for a while
             // so background simulations do not use up the snapshot budget.
             var due = calls >= SnapshotAfterCalls && state.Snapshots < MaxSnapshotsPerMatch &&
@@ -216,6 +234,19 @@ internal sealed class MacMatchProbe
                 DeepSnapshot(match, tick ?? -1, targetTick);
             }
         }
+    }
+
+    /// <summary>At most once a second, looks for the trigger file and starts a new manual round.</summary>
+    private void CheckTrigger()
+    {
+        var now = Environment.TickCount64;
+        var next = Interlocked.Read(ref _nextTriggerCheck);
+        if (now < next || Interlocked.CompareExchange(ref _nextTriggerCheck, now + 1000, next) != next) return;
+        var path = Path.Combine(_outputDirectory, TriggerFileName);
+        if (!File.Exists(path)) return;
+        try { File.Delete(path); } catch { /* the next check would see it again; a second round is harmless */ }
+        var generation = Interlocked.Increment(ref _manualGeneration);
+        PluginLogger.Info($"[macOS probe] Snapshot requested (round {generation}); each live match saves one on its next step.");
     }
 
     private static string Describe(nint match, MatchState state, int? tick)
@@ -246,7 +277,7 @@ internal sealed class MacMatchProbe
     /// u32 record count; then per record: u64 address, u64 pointer that led to it,
     /// u32 size, i32 parent record, u32 offset in parent, u32 depth, bytes.
     /// </summary>
-    private void DeepSnapshot(nint match, int tick, int targetTick)
+    private void DeepSnapshot(nint match, int tick, int targetTick, string kind = "auto")
     {
         using var scope = VirtualMemory.BeginReadScope();
         var graph = new Graph();
@@ -302,7 +333,7 @@ internal sealed class MacMatchProbe
                     var record = graph.Records[window];
                     var anchor = (int)(value - record.Address);
                     var leaves = 0;
-                    for (var inner = anchor; inner + 8 <= anchor + WindowScan && inner + 8 <= record.Data.Length && leaves < MaxWindowChildren; inner += 8)
+                    for (var inner = Math.Max(0, anchor - WindowScan); inner + 8 <= anchor + WindowScan && inner + 8 <= record.Data.Length && leaves < MaxWindowChildren; inner += 8)
                     {
                         var leaf = BitConverter.ToUInt64(record.Data, inner);
                         if (!IsHeapPointer(leaf, 3)) continue;
@@ -341,9 +372,10 @@ internal sealed class MacMatchProbe
         }
 
         var stamp = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss-fff");
-        var fileName = $"match-{matchAddress:X}-tick{tick}-target{targetTick}-{stamp}-graph.bin";
+        var suffix = kind == "manual" ? "-manual" : string.Empty;
+        var fileName = $"match-{matchAddress:X}-tick{tick}-target{targetTick}-{stamp}{suffix}-graph.bin";
         PluginLogger.Info(
-            $"[macOS probe] Graph snapshot at tick {tick}: {graph.Records.Count} objects, " +
+            $"[macOS probe] Graph snapshot ({kind}) of match 0x{matchAddress:X} at tick {tick}: {graph.Records.Count} objects, " +
             $"{graph.Bytes / 1024} KiB.{summary}");
 
         var directory = _outputDirectory;
@@ -520,6 +552,7 @@ internal sealed class MacMatchProbe
         public int Snapshots;
         public int LastSnapshotTick = int.MinValue / 2;
         public DateTime LastLog = DateTime.MinValue;
+        public int ManualGeneration;
     }
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
