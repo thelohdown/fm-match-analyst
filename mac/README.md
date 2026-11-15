@@ -135,8 +135,22 @@ Checked against the game's own match screens (Chicago Fire v LAFC, 14 Nov 2026):
 | MatchPlayer.Stats | 0x1880 | 0x1880 | pointer to the per-match stats object (now copied by the probe) |
 | GameMatch.MomentumEventSource | 0x14EA8 | 0x14E98 | +0x08/+0x10 begin/end of 147 0x38-byte events at tick 1890 |
 
-The team stats FM shows (shots, corners, xG, possession) are not stored as team fields; on
-Windows FMMatchLens derives them from the momentum events, so the events are next. While
+Checked at full time against every stat on FM's match screens (Chicago 1-0 Atlanta United 2,
+friendly, 14 Nov 2026; snapshot taken automatically when the match stopped, tick 22609):
+
+- **MomentumEvent: same layout as Windows.** 1,614 events of 0x38 bytes, team at 0x28,
+  type at 0x2A, flags at 0x30. Shots 20/7, on target 9/2, woodwork 0/1, blocked 4/4,
+  crosses 2 of 32 / 1 of 23, tackles 3 of 6 / 12 of 13, headers 9 of 24 / 14 of 23,
+  yellow cards 0/2, offsides 0/1 and corners 11/5 (crosses with flag 0x40) all match.
+  Raw pass events (497 of 547) exceed FM's 481 of 529, as the Windows code expects.
+- **PlayerStats (MatchPlayer+0x1880 →): same layout as Windows.** Summed over each squad,
+  Goals, Shots, ShotsOnTarget, Passes, PassesCompleted, Crosses, CrossesCompleted,
+  TacklesAttempted/Won, Aerials/Won, Fouls, Offsides and YellowCards equal FM's team totals
+  exactly; Goals names the scorer; xG (+0x1C) sums to 1.62 / 0.46 and DistanceM (+0x68) to
+  109.6 / 107.5 km (FM: 109 / 107).
+- **Rating shown = PlayerStats.RatingTimes100 (+0x82), truncated to one decimal:** all 22.
+
+So team stats come from the events, as on Windows. While
 a match is shown, FM keeps two match objects with the same teams, one several hundred
 ticks ahead of the other (the Windows capture code distinguishes the animated instance).
 The ratings on screen match the instance that is behind, so that is the one being shown.
