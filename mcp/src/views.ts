@@ -994,31 +994,35 @@ export function tactic(model: MatchModel, choice: TeamChoice | undefined) {
   }
 }
 
+/** What a manager changed between two versions of a tactic, in words. */
+export function describeTacticChange(before: TacticalConfiguration, after: TacticalConfiguration): string[] {
+  const changed: string[] = []
+  if (before.mentality !== after.mentality) changed.push(`mentality ${mentalityName(before)} -> ${mentalityName(after)}`)
+  const formation = (config: TacticalConfiguration, inPossession: boolean) =>
+    (inPossession ? config.inPossession : config.outOfPossession).map((position) => decodeAssignment(position.positionMask, position.roleDuty, inPossession))
+  for (const inPossession of [true, false]) {
+    const was = formation(before, inPossession)
+    const now = formation(after, inPossession)
+    now.forEach((assignment, slot) => {
+      const old = assignmentLabel(was[slot])
+      const next = assignmentLabel(assignment)
+      if (old !== next) changed.push(`${inPossession ? "" : "out of possession: "}${old ?? "?"} -> ${next ?? "?"}`)
+    })
+  }
+  const instructionNames = (config: TacticalConfiguration) => new Set(teamInstructionNames(config))
+  const was = instructionNames(before)
+  const now = instructionNames(after)
+  for (const name of now) if (!was.has(name)) changed.push(`added ${name}`)
+  for (const name of was) if (!now.has(name)) changed.push(`dropped ${name}`)
+  return changed
+}
+
 /** What changed in a team's tactic during the match, from one sampled version to the next. */
 export function tacticChanges(model: MatchModel, side: Side) {
   const versions = model.tacticVersions.filter((version) => version.side === side)
   const changes: Array<{ minute: string; changed: string[] }> = []
   for (let index = 1; index < versions.length; index++) {
-    const before = versions[index - 1].config
-    const after = versions[index].config
-    const changed: string[] = []
-    if (before.mentality !== after.mentality) changed.push(`mentality ${mentalityName(before)} -> ${mentalityName(after)}`)
-    const formation = (config: TacticalConfiguration, inPossession: boolean) =>
-      (inPossession ? config.inPossession : config.outOfPossession).map((position) => decodeAssignment(position.positionMask, position.roleDuty, inPossession))
-    for (const inPossession of [true, false]) {
-      const was = formation(before, inPossession)
-      const now = formation(after, inPossession)
-      now.forEach((assignment, slot) => {
-        const old = assignmentLabel(was[slot])
-        const next = assignmentLabel(assignment)
-        if (old !== next) changed.push(`${inPossession ? "" : "out of possession: "}${old ?? "?"} -> ${next ?? "?"}`)
-      })
-    }
-    const instructionNames = (config: TacticalConfiguration) => new Set(teamInstructionNames(config))
-    const was = instructionNames(before)
-    const now = instructionNames(after)
-    for (const name of now) if (!was.has(name)) changed.push(`added ${name}`)
-    for (const name of was) if (!now.has(name)) changed.push(`dropped ${name}`)
+    const changed = describeTacticChange(versions[index - 1].config, versions[index].config)
     if (changed.length > 0) changes.push({ minute: eventTime(model, versions[index].tick).minute, changed })
   }
   return changes.length > 0 ? changes : undefined

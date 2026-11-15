@@ -7,6 +7,7 @@ import * as z from "zod"
 
 import guide from "../analyst/fm-analyst.md"
 import { briefing } from "./briefing"
+import { changesReport } from "./changes"
 import { checkData, dataWarning } from "./checks"
 import { saveFeedback } from "./feedback"
 import { clockLabel } from "./clock"
@@ -132,7 +133,7 @@ export function createServer(options: { apiUrl?: string; startLive?: boolean } =
         "in possession (build-up/progression/final-third time, how often possessions reach the final third and box and through which channel, chance quality, crossing, passing); " +
         "out of possession (block and line height, where the opponent gets in, pressing, duels); transitions (regains, fast breaks, losses, counter-pressing, " +
         "shots within 15 s either way); set pieces; whether the tactic's team instructions are happening; shots in the last 20 minutes with how each came about; " +
-        "who is tiring, fading, struggling or standing out; tactics with recent changes; the bench; the last 10 minutes' events. The last 15 minutes are set against earlier in the half for both teams.",
+        "who is tiring, fading, struggling or standing out; tactics with recent changes; whether your latest change is working (before against after); the bench; the last 10 minutes' events. The last 15 minutes are set against earlier in the half for both teams.",
       inputSchema: {},
       annotations: readOnly,
     },
@@ -157,6 +158,25 @@ export function createServer(options: { apiUrl?: string; startLive?: boolean } =
         if (!selection) return { error: "No match data in that window yet." }
         const { sides, note } = views.resolveSides(model, args.team)
         return phaseReport(model, sides, selection, note)
+      })
+  )
+
+  server.registerTool(
+    "get_changes",
+    {
+      title: "Did the change work?",
+      description:
+        "For each tactical change made during the match (mentality, shape, roles, team instructions): up to 15 minutes before it against up to 15 minutes after it, " +
+        "per 10 minutes, for attacking (possession, xG, shots, box and final-third entries, fast breaks), pressing and the defensive line, ball losses, " +
+        "and what the team conceded (xG, shots, box entries, fast breaks). Lists what got better, worse or simply moved, and what else happened in those stretches " +
+        "(goals, red cards, substitutions, the other side changing) that could explain it. Use when the user asks whether a change worked or what it did. Defaults to the user's team.",
+      inputSchema: { team },
+      annotations: readOnly,
+    },
+    async (args) =>
+      withMatch(({ model }) => {
+        const { sides, note } = views.resolveSides(model, args.team ?? "mine")
+        return changesReport(model, sides, note)
       })
   )
 

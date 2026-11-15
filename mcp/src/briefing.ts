@@ -8,6 +8,7 @@
 import { decodeTacticalSnapshot } from "@/components/formation/tactics"
 import type { XgShotPoint } from "@/types/match"
 
+import { latestChange } from "./changes"
 import { type MatchModel, other, type Side, type WindowSelection } from "./model"
 import { PhaseContext } from "./phases"
 import {
@@ -217,6 +218,7 @@ export function briefing(model: MatchModel, source: SourceInfo, check: { ok: boo
     transitions: moment(transitionsView),
     setPieces: Object.fromEntries(sides.map((side) => [label(side), setPiecesView(wholePhases, side)])),
     planVsReality: plan ?? (user ? "no measurable team instructions captured" : undefined),
+    yourLastChange: user ? latestChange(model, user) : undefined,
     shotsLast20Minutes: Object.fromEntries(sides.map((side) => [label(side), recentShots(side)])),
     players: Object.fromEntries(sides.map((side) => [label(side), people(side)])),
     tactics,
@@ -225,6 +227,7 @@ export function briefing(model: MatchModel, source: SourceInfo, check: { ok: boo
     substitutionsMade: Object.fromEntries(sides.map((side) => [label(side), state.substitutions.filter((sub) => sub.team === teamName(model, side)).length])),
     legend:
       `${PHASE_LEGEND} Set pieces are for the whole match. standsOut is worked out from the numbers below: problems and what is working, recent against the opponent and earlier. ` +
+      "yourLastChange is the latest tactical change against the stretch before it (get_changes for every change). " +
       "condition is physical condition %, ratingChange20 the change over the last 20 minutes. Use get_phases for any other stretch, and get_players, get_events, get_shape or get_tactic for detail.",
   }
 }

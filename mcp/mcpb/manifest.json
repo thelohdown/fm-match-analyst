@@ -62,6 +62,10 @@
       "description": "In possession, out of possession, transitions and set pieces for any stretch of play."
     },
     {
+      "name": "get_changes",
+      "description": "Did the change work? Each tactical change: the stretch before against the stretch after, and what else happened."
+    },
+    {
       "name": "get_match_state",
       "description": "Score, clock, your team, xG, possession, momentum, goals, cards, substitutions."
     },
