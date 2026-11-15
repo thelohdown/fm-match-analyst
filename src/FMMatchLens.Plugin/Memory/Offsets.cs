@@ -432,7 +432,10 @@ internal static class Offsets
 
     public static class Person
     {
-        public const int ActualPlayerDelta = -0x288;
+        // macOS (FM27 27.0.1, from graph snapshots): the ActualPlayer part sits 0x390 before the
+        // person record; from there on (familiarities, attributes, height, value, condition,
+        // ability, morale) the layout is the same as on Windows.
+        public static readonly int ActualPlayerDelta = Pick(-0x288, -0x390);
         public const int Uid = 0x0C;
         // Legacy candidates: neither a gender bit/mask nor its encoding has
         // been verified for FM27. Do not infer gender from these raw bytes.

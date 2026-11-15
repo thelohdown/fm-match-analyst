@@ -1770,13 +1770,13 @@ internal sealed class GameMatchTickHook : IDisposable
 
     private IReadOnlyDictionary<string, int>? ReadPlayerPositionFamiliarities(nint person)
     {
-        // macOS: the ActualPlayer part of the record is laid out differently and not mapped yet.
-        if (person == default || Offsets.IsMac)
+        if (person == default)
         {
             return null;
         }
 
         var actualPlayer = person + Offsets.Person.ActualPlayerDelta;
+        if (Offsets.IsMac && !MacPlayerRecordLooksRight(actualPlayer)) return null;
         var familiarities = new Dictionary<string, int>(PlayerPositionFamiliarity.Labels.Length, StringComparer.Ordinal);
         for (var index = 0; index < PlayerPositionFamiliarity.Labels.Length; index++)
         {
@@ -1816,8 +1816,10 @@ internal sealed class GameMatchTickHook : IDisposable
             return null;
         }
 
-        // macOS: ActualPlayer is not mapped yet; a null base makes those reads fail and stay null.
-        var actualPlayer = Offsets.IsMac ? default : person + Offsets.Person.ActualPlayerDelta;
+        // macOS: the ActualPlayer layout was mapped from snapshots; a record that does not look
+        // like a player's leaves its fields null (a null base makes those reads fail).
+        var actualPlayer = person + Offsets.Person.ActualPlayerDelta;
+        if (Offsets.IsMac && !MacPlayerRecordLooksRight(actualPlayer)) actualPlayer = default;
         _memoryReader.TryReadPointer(person + Offsets.Person.Nation, out var nation);
         var bodyType = _memoryReader.TryReadByte(actualPlayer + Offsets.ActualPlayer.BodyType, out var rawBodyType) &&
                        rawBodyType is >= 1 and <= 5
@@ -1840,7 +1842,8 @@ internal sealed class GameMatchTickHook : IDisposable
             ReadOptionalByte(person + Offsets.Person.YouthApps),
             ReadOptionalByte(person + Offsets.Person.YouthGoals),
             ReadPositiveInt16(actualPlayer + Offsets.ActualPlayer.MatchSharpness),
-            ReadPlayerSeasonStats(actualPlayer));
+            // macOS: the season stats object is not mapped yet.
+            Offsets.IsMac ? null : ReadPlayerSeasonStats(actualPlayer));
         return profile.WeeklyWage.HasValue || profile.HeightCm.HasValue || profile.Condition.HasValue || profile.MatchSharpness.HasValue || profile.Morale.HasValue ||
                profile.DateOfBirth is not null || profile.NationUid.HasValue || profile.BodyType.HasValue || profile.GuideValueGbp.HasValue ||
                profile.InternationalApps.HasValue || profile.YouthApps.HasValue || profile.SeasonStats is not null
@@ -1940,13 +1943,13 @@ internal sealed class GameMatchTickHook : IDisposable
 
     private PlayerAttributes? ReadPlayerAttributes(nint person)
     {
-        // macOS: the ActualPlayer part of the record is laid out differently and not mapped yet.
-        if (person == default || Offsets.IsMac)
+        if (person == default)
         {
             return null;
         }
 
         var player = person + Offsets.Person.ActualPlayerDelta;
+        if (Offsets.IsMac && !MacPlayerRecordLooksRight(player)) return null;
         var attributes = new PlayerAttributes(
             new Dictionary<string, int>
             {
@@ -2018,6 +2021,31 @@ internal sealed class GameMatchTickHook : IDisposable
                attributes.Goalkeeping.Values.Any(value => value > 0)
             ? attributes
             : null;
+    }
+
+    /// <summary>
+    /// macOS check before trusting the ActualPlayer layout: 15 position familiarities of 1-20
+    /// with at least one natural position, and every attribute byte between 1 and 100.
+    /// </summary>
+    private bool MacPlayerRecordLooksRight(nint actualPlayer)
+    {
+        var start = actualPlayer + Offsets.ActualPlayer.PositionGk;
+        var length = Offsets.ActualPlayer.Concentration - Offsets.ActualPlayer.PositionGk + 1;
+        if (!VirtualMemory.IsReadable(start, length)) return false;
+        var best = 0;
+        for (var i = 0; i < PlayerPositionFamiliarity.Labels.Length; i++)
+        {
+            var value = Marshal.ReadByte(start + i);
+            if (value is < 1 or > 20) return false;
+            best = Math.Max(best, value);
+        }
+        if (best < 15) return false;
+        for (var offset = Offsets.ActualPlayer.Crossing; offset <= Offsets.ActualPlayer.Concentration; offset++)
+        {
+            var value = Marshal.ReadByte(actualPlayer + offset);
+            if (value is < 1 or > 100) return false;
+        }
+        return true;
     }
 
     private int ReadAttribute(nint player, int offset)

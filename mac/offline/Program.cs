@@ -159,6 +159,17 @@ internal static partial class Program
 
         Console.WriteLine($"competition: {competition?.ToString() ?? "-"}");
 
+        Console.WriteLine("\nprofiles and attributes (attributes on FM's 1-100 scale; the game shows them /5):");
+        foreach (var meta in metadata.OrderBy(m => m.Slot))
+        {
+            var p = meta.Profile;
+            var a = meta.Attributes;
+            int A(IReadOnlyDictionary<string, int>? group, string name) => group is not null && group.TryGetValue(name, out var v) ? v : -1;
+            Console.WriteLine($"  {meta.Slot,2} {meta.DisplayName,-24} pos {meta.Position ?? "-",-4} height {Show(p?.HeightCm)} CA {Show(p?.CurrentAbility)}/{Show(p?.PotentialAbility)} " +
+                              $"cond {Show(p?.Condition)} sharp {Show(p?.MatchSharpness)} morale {Show(p?.Morale)} value {Show(p?.GuideValueGbp)} | " +
+                              (a is null ? "no attributes" : $"fin {A(a.Technical, "Finishing")} pas {A(a.Technical, "Passing")} tck {A(a.Technical, "Tackling")} pace {A(a.Physical, "Pace")} acc {A(a.Physical, "Acceleration")} sta {A(a.Physical, "Stamina")} dec {A(a.Mental, "Decisions")} han {A(a.Goalkeeping, "Handling")} ref {A(a.Goalkeeping, "Reflexes")}"));
+        }
+
         Console.WriteLine("\nplayers (frame + metadata):");
         Console.WriteLine("  slot side  no  name                          uid         born        rating  G  A  sh/ot  pass     tkl    dist(m)   x,y");
         var bySlot = metadata.ToDictionary(m => m.Slot);
