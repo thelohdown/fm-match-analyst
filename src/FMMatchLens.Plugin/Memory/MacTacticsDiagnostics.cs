@@ -68,7 +68,9 @@ internal static class MacTacticsDiagnostics
     {
         if (config is null) return "not read";
         var name = config.NameUtf8 is { Length: > 0 } bytes ? Encoding.UTF8.GetString(bytes) : "(no name)";
-        var style = Encoding.ASCII.GetString(BitConverter.GetBytes(config.StyleKey).Reverse().ToArray());
+        // The style key is four ASCII characters, most significant byte first ("WING", "NULL").
+        // (No array.Reverse(): with C# 14 it binds to the in-place Span version and returns void.)
+        var style = new string(new[] { 24, 16, 8, 0 }.Select(shift => (char)((config.StyleKey >> shift) & 0xFF)).ToArray());
         string Shape(TacticalPosition[] positions) => string.Join(" ", positions.Select(position => TacticalFormationDecoder.DecodePosition(position.PositionMask) ?? "?"));
         var overrides = $"{config.InPossessionOverrides?.Length.ToString() ?? "?"}/{config.OutOfPossessionOverrides?.Length.ToString() ?? "?"}";
         return $"\"{name}\" style {style} mentality {config.Mentality}, in possession [{Shape(config.InPossession)}], " +

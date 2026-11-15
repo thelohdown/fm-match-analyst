@@ -3642,8 +3642,9 @@ internal sealed class GameMatchTickHook : IDisposable
                 !_reader.TryReadUInt64(map + Tactics.MacOverrideTree.Size, out var declaredCount) || declaredCount > Tactics.PersonalOppositionCount)
                 return null;
             var endNode = map + Tactics.MacOverrideTree.Root;
-            var root = Marshal.ReadIntPtr(endNode);
-            var begin = Marshal.ReadIntPtr(map + Tactics.MacOverrideTree.Begin);
+            // nint, not IntPtr: the plugin targets net6.0, where IntPtr has no == with an int.
+            nint root = Marshal.ReadIntPtr(endNode);
+            nint begin = Marshal.ReadIntPtr(map + Tactics.MacOverrideTree.Begin);
             // An empty map points its begin at its own end node and has no root.
             if (declaredCount == 0) return root == 0 && begin == endNode ? Array.Empty<TacticalPersonalOverride>() : null;
             var result = new List<TacticalPersonalOverride>();
