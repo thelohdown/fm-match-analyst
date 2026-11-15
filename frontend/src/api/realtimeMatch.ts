@@ -795,13 +795,22 @@ export function useRealtimeMatch(
           changed ||= additions.length > 0
           keepLoading =
             slice.frames.length >= liveFramePageSize && additions.length > 0
+          // A dashboard opened late in a match reads the whole match here, one
+          // page (~100 MB of JSON) at a time. Show each page as it arrives
+          // rather than leaving the history panels empty until the last one.
+          if (keepLoading && additions.length > 0) {
+            historical = derived.snapshot(historyLastTick)
+            publish(latestFrame, true)
+          }
         }
         if (changed)
           historical = derived.snapshot(latestFrame?.tick ?? historyLastTick)
         if (changed || metadataChanged) publish(latestFrame, true)
-      } catch {
+      } catch (error) {
         // WebSocket still keeps the current score/player state live. The next
         // low-frequency sync retries the missing historical range.
+        if (!(error instanceof DOMException && error.name === "AbortError"))
+          console.warn("FMMatchLens: live history sync failed", error)
       } finally {
         syncing = false
         if (syncPending && !disposed && enabledRef.current) {
