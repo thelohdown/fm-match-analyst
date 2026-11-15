@@ -12,6 +12,8 @@
 #   ./mac/dev.sh snap      ask the probe for a snapshot of every live match right now
 #                          (take it while the game shows the numbers you want to compare)
 #   ./mac/dev.sh health    ask the running plugin's local API whether it is up
+#   ./mac/dev.sh dashboard open the FMMatchLens dashboard (local/dashboard, built from
+#                          frontend/ with npm if it is not there yet)
 #   ./mac/dev.sh where     show where FM27 and BepInEx were found
 #
 # Paths can be overridden with FM27_DIR and BEPINEX_DIR.
@@ -293,6 +295,21 @@ cmd_snap() {
   echo "No snapshot after 20 seconds. Is a match open in FM27 with the plugin loaded? Check ./mac/dev.sh logs."
 }
 
+cmd_dashboard() {
+  local index="$LOCAL/dashboard/index.html"
+  if [ ! -f "$index" ]; then
+    if ! command -v npm >/dev/null 2>&1; then
+      echo "There is no dashboard in local/dashboard yet, and npm is not installed to build one."
+      exit 1
+    fi
+    (cd "$REPO/frontend" && npm ci --no-audit --no-fund && npm run build)
+    mkdir -p "$LOCAL/dashboard"
+    cp -R "$REPO/frontend/dist/." "$LOCAL/dashboard/"
+  fi
+  open "$index"
+  echo "Dashboard opened. It connects to http://127.0.0.1:16726 while FM27 runs with the plugin."
+}
+
 cmd_health() {
   curl -sS --max-time 3 "$API" && echo || echo "No answer from $API (is FM27 running with the plugin loaded?)"
 }
@@ -305,6 +322,7 @@ case "${1:-}" in
   logs) cmd_logs ;;
   snap) cmd_snap ;;
   health) cmd_health ;;
+  dashboard) cmd_dashboard ;;
   where) need_game; echo "BepInEx: $BEPINEX" ;;
-  *) sed -n '2,19p' "$0"; exit 1 ;;
+  *) sed -n '2,21p' "$0"; exit 1 ;;
 esac
