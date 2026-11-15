@@ -47,18 +47,25 @@ list_fm_apps() {
   } | sort -u || true
 }
 
-# FM27 is the fm.app whose folder name or version says 27.
+# FM27 is the fm.app whose folder name or version says 27. The full game wins over the
+# demo when both are installed ("Football Manager 27 Demo" sorts first otherwise).
 find_game() {
   [ -n "$GAME" ] && return 0
-  local app
-  while IFS= read -r app; do
-    [ -n "$app" ] || continue
-    case "$(dirname "$app")|$(app_version "$app")" in
-      *27*) GAME="$(dirname "$app")"; return 0 ;;
-    esac
-  done <<APPS
-$(list_fm_apps)
+  local app pass apps
+  apps="$(list_fm_apps)"
+  for pass in full demo; do
+    while IFS= read -r app; do
+      [ -n "$app" ] || continue
+      case "$(dirname "$app")" in
+        *[Dd]emo*) [ "$pass" = demo ] || continue ;;
+      esac
+      case "$(dirname "$app")|$(app_version "$app")" in
+        *27*) GAME="$(dirname "$app")"; return 0 ;;
+      esac
+    done <<APPS
+$apps
 APPS
+  done
   return 1
 }
 
