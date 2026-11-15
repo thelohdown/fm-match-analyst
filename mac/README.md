@@ -86,9 +86,29 @@ Offsets seen in both slices that line up with `Offsets.GameMatch` minus 0x10:
 | LifecycleStateA–D | 0x15568–0x1556B | 0x15558–0x1555B |
 | hook checks | 0x1556E / 0x15570 / 0x15575 | 0x1555E / 0x15560 / 0x15565 |
 
-Fields below 0x12A30 (for example `Competition` at 0x678) and the layouts of other
-objects (teams, players, tactics) are not checked yet. The demo may also differ from
-the full release build.
+Fields below 0x12A30 (for example `Competition` at 0x678) are not checked yet.
+
+## Findings (FM27 full release, Steam, macOS)
+
+The full game's `game_plugin` (SHA-256 `68adfde2…12a4` as shipped; the BepInEx
+launcher's re-signed copy hashes differently) has the hook at arm64 RVA `0x44A6450`,
+found by the same signature. Matches play live there, and the match clock, period and
+ball position read correctly at the demo's offsets above. From live graph snapshots:
+
+| Structure.Field | Windows | macOS | Evidence |
+| --- | --- | --- | --- |
+| Team.UniqueId | 0x2C | 0x2C | team IDs |
+| Team.Background/Foreground/OutlineColour | 0x30/0x34/0x38 | same | ARGB kit colours |
+| Team.PlayerTable | 0x138 | 0x140 | pointers to match players, starters first |
+| Team.PlayerTableCount / PlayerCount | 0x72D / 0x72E | 0x73D / 0x73E | 24 for a 24-man matchday squad |
+| MatchPlayer.Match | 0x160 | 0x160 | every player points back to the match |
+| MatchPlayer.PositionX / PositionY | 0x140 / 0x144 | same | inside the pitch; substitutes lined up at x = -39.25 |
+| MatchPlayer.PositionXAlt / YAlt | 0x80 / 0x84 | same | near PositionX/Y for players on the pitch |
+| (match) player list | ? | 0x14ED0 | the same player pointers, both teams |
+
+Match player objects are 0x1E60 bytes apart in memory. `Person` (0x28) and
+`ShirtName` (0x38) hold 4-byte aligned pointers on macOS; the next probe follows them.
+Each team object is 0x750 bytes.
 
 ## Finding the hook
 

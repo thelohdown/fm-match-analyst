@@ -58,6 +58,7 @@ internal sealed class MacMatchProbe
     private const int MaxPlayerChildren = 12;
     private const int MaxWindowChildren = 8;
     private const int MaxRecords = 4000;
+    private const int ShirtNameCandidate = 0x38;
     private const uint GraphMagic = 0x47504D46; // "FMPG"
     private const uint GraphVersion = 1;
     private static readonly TimeSpan LogInterval = TimeSpan.FromSeconds(5);
@@ -264,19 +265,6 @@ internal sealed class MacMatchProbe
             if (index >= 0) teamRecords.Add((side, index));
         }
 
-        // Objects the match points to around its officials, ball holders and teams.
-        var matchBytes = graph.Records[root].Data;
-        var added = 0;
-        foreach (var (start, end) in new[] { (0x600, 0x700), (0x14E00, 0x15560) })
-        {
-            for (var offset = start; offset + 8 <= end && offset + 8 <= matchBytes.Length && added < MaxMatchChildren; offset += 8)
-            {
-                var value = BitConverter.ToUInt64(matchBytes, offset);
-                if (!IsHeapPointer(value)) continue;
-                if (graph.Add(value, value, MatchChildSize, root, offset, 1) >= 0) added++;
-            }
-        }
-
         foreach (var (side, teamIndex) in teamRecords)
         {
             var teamBytes = graph.Records[teamIndex].Data;
@@ -305,7 +293,8 @@ internal sealed class MacMatchProbe
                 for (var offset = 0; offset + 8 <= PlayerScanEnd && windows < MaxPlayerChildren; offset += 8)
                 {
                     var value = BitConverter.ToUInt64(playerBytes, offset);
-                    if (!IsHeapPointer(value) || value == matchAddress) continue;
+                    // Player fields can point at 4-byte aligned subobjects and strings.
+                    if (!IsHeapPointer(value, 3) || value == matchAddress) continue;
                     var window = graph.AddWindow(value, WindowBefore, WindowSize, player, offset, 3);
                     if (window < 0) continue;
                     windows++;
@@ -316,19 +305,39 @@ internal sealed class MacMatchProbe
                     for (var inner = anchor; inner + 8 <= anchor + WindowScan && inner + 8 <= record.Data.Length && leaves < MaxWindowChildren; inner += 8)
                     {
                         var leaf = BitConverter.ToUInt64(record.Data, inner);
-                        if (!IsHeapPointer(leaf)) continue;
+                        if (!IsHeapPointer(leaf, 3)) continue;
                         if (graph.Add(leaf, leaf, LeafSize, window, inner, 4) >= 0) leaves++;
                     }
                 }
             }
 
             summary.Append($" {side}: {children} objects, {players.Count} point back to the match");
+            var names = players.Take(4)
+                .Select(p => ReadFmString(BitConverter.ToUInt64(graph.Records[p].Data, ShirtNameCandidate)))
+                .Where(n => n is not null)
+                .ToList();
+            if (names.Count > 0) summary.Append($", shirt names at +0x{ShirtNameCandidate:X}: {string.Join(", ", names)}");
             if (players.Count > 0)
             {
                 summary.Append($" (at {string.Join(", ", backOffsets.Select(p => $"+0x{p.Key:X}x{p.Value}"))};");
                 summary.Append($" from team offsets 0x{firstOffset:X}-0x{lastOffset:X})");
             }
             summary.Append('.');
+        }
+
+        // Objects the match points to around its officials, ball holders and teams. This runs
+        // after the teams: the match also lists the players near 0x14ED0, and they should be
+        // copied in full as team children first.
+        var matchBytes = graph.Records[root].Data;
+        var added = 0;
+        foreach (var (start, end) in new[] { (0x600, 0x700), (0x14E00, 0x15560) })
+        {
+            for (var offset = start; offset + 8 <= end && offset + 8 <= matchBytes.Length && added < MaxMatchChildren; offset += 8)
+            {
+                var value = BitConverter.ToUInt64(matchBytes, offset);
+                if (!IsHeapPointer(value)) continue;
+                if (graph.Add(value, value, MatchChildSize, root, offset, 1) >= 0) added++;
+            }
         }
 
         var stamp = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss-fff");
@@ -369,9 +378,9 @@ internal sealed class MacMatchProbe
         });
     }
 
-    private bool IsHeapPointer(ulong value)
+    private bool IsHeapPointer(ulong value, ulong alignmentMask = 7)
     {
-        if (value < 0x1_0000_0000UL || value >= 0x8000_0000_0000UL || (value & 7) != 0) return false;
+        if (value < 0x1_0000_0000UL || value >= 0x8000_0000_0000UL || (value & alignmentMask) != 0) return false;
         var spans = _imageSpans;
         int low = 0, high = spans.Length - 1;
         while (low <= high)
@@ -404,6 +413,18 @@ internal sealed class MacMatchProbe
         }
 
         return merged.ToArray();
+    }
+
+    /// <summary>FM string instance: int32 byte length at +0, UTF-8 text at +4.</summary>
+    private static string? ReadFmString(ulong pointer)
+    {
+        var address = (nint)(long)pointer;
+        if (pointer == 0 || !VirtualMemory.IsReadable(address, 4)) return null;
+        var length = Marshal.ReadInt32(address);
+        if (length <= 0 || length > 64 || !VirtualMemory.IsReadable(address + 4, length)) return null;
+        var bytes = new byte[length];
+        Marshal.Copy(address + 4, bytes, 0, length);
+        return Encoding.UTF8.GetString(bytes);
     }
 
     private static int FindQword(byte[] data, ulong value, int scanEnd)
