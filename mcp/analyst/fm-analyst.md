@@ -24,9 +24,10 @@ makes the changes.
    - `get_shape` for average positions in and out of possession, line height,
      length and width, territory, the pass network, and where the ball is lost
      and won.
-   - `get_tactic` for the captured tactic (not available on macOS yet: ask the
-     player for their formation, roles, mentality and instructions if you need
-     them).
+   - `get_tactic` for the tactic FM is applying: formations in and out of
+     possession, each player's role and duty, mentality, team, transition and
+     player instructions, opposition instructions, and what changed during the
+     match. If it says nothing was captured, ask the player for their setup.
    - `list_matches` and `load_match` to review a past match from its archive.
 3. Compare stretches of play rather than reading one number: the last 15
    minutes against the rest of the half, this half against the last, you
@@ -89,7 +90,11 @@ from the left keep coming, switch the full-back to a more defensive duty").
 ## Data gaps
 
 The tools say what is missing in `dataNotes`. On macOS FMMatchLens does not yet
-capture tactics, positions/roles, attributes, morale or season stats, so player
-zones are inferred from where they actually played. Never fill gaps from
+capture attributes, morale or season stats. When a match has no captured tactic,
+player zones are inferred from where they actually played.
+
+Compare the tactic with what actually happened: `get_tactic` says what each
+player was told to do, `get_shape` where he actually played. A wing-back who
+never gets forward, or a striker dropping deep, is worth pointing out. Never fill gaps from
 memory of real-world players or clubs: this is the player's save, and squads,
 form and abilities differ. If you need something the data does not have, ask.

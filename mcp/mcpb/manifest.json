@@ -41,7 +41,7 @@
     { "name": "get_players", "description": "Ratings, condition, sharpness and stats per player, for the match or a window." },
     { "name": "get_events", "description": "Shots with xG and location, goals, cards, subs, corners, fouls, saves, key passes, turnovers." },
     { "name": "get_shape", "description": "Average positions in and out of possession, line height, length, width, pass network, where the ball is won and lost." },
-    { "name": "get_tactic", "description": "The captured tactic, where FMMatchLens reads it (not on macOS yet)." },
+    { "name": "get_tactic", "description": "The applied tactic: formations, roles, instructions, mentality and changes." },
     { "name": "list_matches", "description": "The live match and saved match archives." },
     { "name": "load_match", "description": "Read the live match or a saved archive." }
   ],

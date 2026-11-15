@@ -19,6 +19,7 @@ import type {
 } from "@/api/realtimeMatch"
 import { HistoricalDerivations } from "@/api/replay/replayDerivations"
 import { TacticalWireState } from "@/components/formation/tactics"
+import type { TacticalConfiguration, TacticalSnapshot } from "@/types/match"
 
 import { minuteNumber, periodEndMinute, periodStartSeconds, TICKS_PER_SECOND } from "./clock"
 
@@ -142,6 +143,13 @@ export type Appearance = {
   offTick?: number
 }
 
+/** A team's applied tactic as first seen, and each time it changed. */
+export type TacticVersion = {
+  tick: number
+  side: Side
+  config: TacticalConfiguration
+}
+
 export type MatchWindow = {
   half?: "first" | "second" | "extra"
   fromMinute?: number
@@ -166,18 +174,22 @@ export class MatchModel {
   readonly buckets: Bucket[] = []
   readonly appearances = new Map<number, Appearance>()
   last?: RealtimeFrame
+  /** The latest tactic snapshot FMMatchLens captured (sampled about once a game minute). */
+  tactics?: TacticalSnapshot
+  readonly tacticVersions: TacticVersion[] = []
   lastClockSeconds = 0
   frameCount = 0
   halfLength = 52.5
   halfWidth = 34
 
-  private readonly tactics = new TacticalWireState()
+  private readonly tacticWire = new TacticalWireState()
   private readonly periodStartTick = new Map<number, number>([[1, 0]])
   private readonly possessionSeen = new Set<number>()
   private current?: Bucket
   private lastEndState?: StatState
   private initialLineupKnown = false
   private orientationCache = new Map<string, 1 | -1 | undefined>()
+  private tacticKeys: Record<Side, string | undefined> = { home: undefined, away: undefined }
 
   constructor(matchId: string) {
     this.matchId = matchId
@@ -201,12 +213,12 @@ export class MatchModel {
       // FMMatchLens may resend the final tick once the match is over, with the
       // finished stats; take it without counting the tick twice.
       if (this.last && raw.tick === this.last.tick && raw.sequence > this.last.sequence) {
-        this.last = hydrateTactics ? this.tactics.hydrate(raw) : raw
+        this.last = hydrateTactics ? this.tacticWire.hydrate(raw) : raw
         this.lastEndState = undefined
         continue
       }
       if (this.last && raw.tick <= this.last.tick) continue
-      const frame = hydrateTactics ? this.tactics.hydrate(raw) : raw
+      const frame = hydrateTactics ? this.tacticWire.hydrate(raw) : raw
       this.ingestFrame(frame)
       accepted.push(frame)
     }
@@ -240,11 +252,32 @@ export class MatchModel {
         this.samplePositions(this.current, frame)
       }
       this.trackAppearances(frame)
+      if (frame.tactics && frame.tactics !== this.tactics) this.trackTactics(frame.tactics, frame.tick)
       this.lastClockSeconds = clock
     }
     this.last = frame
     this.frameCount++
     this.lastEndState = undefined
+  }
+
+  private trackTactics(tactics: TacticalSnapshot, tick: number) {
+    this.tactics = tactics
+    for (const side of SIDES) {
+      const config = tactics[side]?.processing
+      if (!config) continue
+      // What a manager changes: mentality, style, instructions, shape and roles.
+      const key = JSON.stringify([
+        config.mentality,
+        config.styleKey,
+        config.teamInstructions,
+        config.phaseSlotMapping,
+        config.inPossession.map((position) => [position.positionMask, position.roleDuty]),
+        config.outOfPossession.map((position) => [position.positionMask, position.roleDuty]),
+      ])
+      if (key === this.tacticKeys[side]) continue
+      this.tacticKeys[side] = key
+      this.tacticVersions.push({ tick, side, config })
+    }
   }
 
   /** Match clock in seconds for a frame (see clock.ts). */

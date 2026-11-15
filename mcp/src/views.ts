@@ -4,8 +4,10 @@
 // match clock (see clock.ts).
 
 import type { RealtimePlayerMetadata } from "@/api/realtimeMatch"
-import { decodeTacticalSnapshot } from "@/components/formation/tactics"
-import type { MatchMomentumPoint, TacticalEventPoint, XgShotPoint } from "@/types/match"
+import instructionOptions from "@/components/formation/data/instructionOptions"
+import { decodeAssignment, playerFormation } from "@/components/formation/formationProjection"
+import { decodeTacticalSnapshot, decodeTeamInstructions } from "@/components/formation/tactics"
+import type { MatchMomentumPoint, PlayerTacticalAssignment, TacticalConfiguration, TacticalEventPoint, XgShotPoint } from "@/types/match"
 
 import { clockLabel, minuteLabel, periodName } from "./clock"
 import {
@@ -144,6 +146,42 @@ const annotationsOf = (event: { annotations?: readonly string[] }) =>
   (event.annotations ?? []).map((annotation) => ANNOTATION_TEXT[annotation]).filter(Boolean)
 
 // ---------------------------------------------------------------------------
+// Roles from the captured tactic
+
+/** "LookForOverlapBoth" -> "look for overlap both"; "PI_PASS_SHORTER" -> "pass shorter". */
+export function humanize(name: string): string {
+  return name
+    .replace(/^(PI|TI)_/, "")
+    .replace(/_/g, " ")
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .toLowerCase()
+    .replace(/\bgk\b/g, "goalkeeper")
+}
+
+function assignmentLabel(assignment: PlayerTacticalAssignment | undefined): string | undefined {
+  if (!assignment) return undefined
+  return `${assignment.position} ${assignment.role}${assignment.duty ? ` (${assignment.duty})` : ""}`
+}
+
+/** A player's position and role in and out of possession, from the applied tactic. */
+export function playerRoles(model: MatchModel, playerId: number) {
+  const player = model.last?.players.find((candidate) => candidate.playerId === playerId)
+  if (!player || !model.tactics) return undefined
+  const roles = playerFormation(model.tactics, player)
+  if (!roles.inPossession && !roles.outOfPossession) return undefined
+  return { inPossession: roles.inPossession, outOfPossession: roles.outOfPossession }
+}
+
+function roleText(model: MatchModel, playerId: number): string | undefined {
+  const roles = playerRoles(model, playerId)
+  if (!roles) return undefined
+  const ip = assignmentLabel(roles.inPossession)
+  const oop = assignmentLabel(roles.outOfPossession)
+  return ip && oop && ip !== oop ? `${ip}; out of possession ${oop}` : (ip ?? oop)
+}
+
+// ---------------------------------------------------------------------------
 // Positions and shape
 
 type PlayerPosition = {
@@ -211,7 +249,8 @@ function zoneLabels(model: MatchModel, positions: Map<number, PlayerPosition>, s
   const low = Math.min(...depths)
   const high = Math.max(...depths)
   for (const entry of players) {
-    const captured = playerMeta(model, entry.playerId)?.position
+    const fromTactic = playerRoles(model, entry.playerId)?.inPossession
+    const captured = fromTactic ? `${fromTactic.position} ${fromTactic.role}` : playerMeta(model, entry.playerId)?.position
     if (captured) {
       labels.set(entry.playerId, captured)
       continue
@@ -448,9 +487,13 @@ export function substitutionList(model: MatchModel) {
 function dataNotes(model: MatchModel, source: SourceInfo): string[] {
   const notes: string[] = []
   const anyPosition = model.metadata?.players.some((player) => player.position)
-  if (!anyPosition) {
+  if (!anyPosition && !model.tactics) {
     notes.push(
-      "Player positions, roles and tactics were not captured (FMMatchLens on macOS does not read them yet); positions are inferred from where players actually stood."
+      "Player positions, roles and tactics were not captured for this match; positions are inferred from where players actually stood."
+    )
+  } else if (model.tactics && model.tactics.home.status !== "complete") {
+    notes.push(
+      "The tactic was captured (shape, roles, mentality, instructions); some player-specific instructions may be missing. FMMatchLens samples it about once a game minute."
     )
   }
   const anyAttributes = model.metadata?.players.some((player) => player.attributes)
@@ -589,7 +632,8 @@ function playerRow(
     order: order + (meta?.slot ?? 0),
     name: meta?.displayName ?? `player ${playerId}`,
     number: meta?.shirtNumber ?? meta?.squadNumber,
-    zone,
+    role: roleText(model, playerId),
+    zone: roleText(model, playerId) ? undefined : zone,
     status,
     minutesPlayed,
     rating: round(state.rating, 1),
@@ -764,7 +808,8 @@ export function shape(model: MatchModel, choice: TeamChoice | undefined, window:
       .sort((left, right) => (left.overall?.depth ?? 0) - (right.overall?.depth ?? 0))
       .map((entry) => ({
         name: playerName(model, entry.playerId),
-        zone: labels.get(entry.playerId),
+        role: roleText(model, entry.playerId),
+        zone: roleText(model, entry.playerId) ? undefined : labels.get(entry.playerId),
         inPossession: entry.inPossession,
         outOfPossession: entry.outOfPossession,
         minutes: Math.round((entry.samples.in + entry.samples.out) / 60),
@@ -813,54 +858,124 @@ export function shape(model: MatchModel, choice: TeamChoice | undefined, window:
 }
 
 export function tactic(model: MatchModel, choice: TeamChoice | undefined) {
-  const snapshot = model.last?.tactics
+  const snapshot = model.tactics
   if (!snapshot) {
     return {
       available: false,
       reason:
-        "FMMatchLens did not capture tactics for this match (it does not read them on macOS yet). Ask the user for their formation, roles, mentality and instructions, or a screenshot of the tactics screen.",
+        "FMMatchLens did not capture a tactic for this match. Ask the user for their formation, roles, mentality and instructions, or a screenshot of the tactics screen.",
       inferredShape: "get_shape shows where each player actually played.",
     }
   }
   const { sides, note } = resolveSides(model, choice)
   try {
     const decoded = decodeTacticalSnapshot(snapshot)
-    const result: Record<string, unknown> = { available: true, note, observedAt: eventTime(model, snapshot.observedTick).minute }
+    const result: Record<string, unknown> = {
+      available: true,
+      note,
+      capturedAt: eventTime(model, snapshot.observedTick).minute,
+      legend:
+        "The tactic FM is applying in the match (sampled about once a game minute). Roles read 'position role (duty)'. Opposition instructions are what this team told its players to do against each opponent.",
+    }
     for (const side of sides) {
       const team = decoded[side]
-      const config = team.command ?? team.processing
+      const config = team.processing ?? team.command
       if (!config) {
         result[sideLabel(model, side)] = { status: team.status }
         continue
       }
-      const phase = (data: typeof config.inPossession) => ({
-        formation: data.formation.displayName,
-        teamInstructions: data.teamInstructions.map((instruction) => (instruction as { name?: string }).name).filter(Boolean),
-        positions: data.positions.map((position) => ({
-          position: position.position,
-          players: position.players.map((player) => playerName(model, player.playerId)),
-          instructions: position.explicit.instructions.map((instruction) => (instruction as { name?: string }).name).filter(Boolean),
-        })),
-      })
+      const names = (items: ReadonlyArray<{ name?: string }>) => items.map((item) => item.name).filter((name): name is string => Boolean(name)).map(humanize)
+      const players = team.players
+        .filter((binding) => binding.tacticSlot != null && binding.tacticSlot >= 0 && binding.tacticSlot < 11)
+        .sort((left, right) => (left.tacticSlot ?? 0) - (right.tacticSlot ?? 0))
+        .map((binding) => {
+          const roles = playerRoles(model, binding.playerId)
+          const ipPosition = config.inPossession.positions[binding.tacticSlot!]
+          return {
+            player: playerName(model, binding.playerId),
+            inPossession: assignmentLabel(roles?.inPossession),
+            outOfPossession: assignmentLabel(roles?.outOfPossession),
+            instructions: ipPosition && names(ipPosition.explicit.instructions).length > 0 ? names(ipPosition.explicit.instructions) : undefined,
+          }
+        })
+      const options = instructionOptions.opposition
+      const state = (field: keyof typeof options, value: number) =>
+        value === 0 ? undefined : (options[field].options as ReadonlyArray<{ value: number; state: string }>).find((option) => option.value === value)?.state
+      const opposition = team.resolvedOpposition
+        .filter((entry) => entry.source === "personal" || entry.source === "position")
+        .map((entry) => {
+          const values = entry as unknown as { marking: number; pressing: number; tackling: number; foot: number; source: string }
+          return {
+            opponent: playerName(model, entry.target.playerId),
+            tightMarking: state("marking", values.marking),
+            triggerPress: state("pressing", values.pressing),
+            tackling: state("tackling", values.tackling),
+            showOnto: state("foot", values.foot),
+            setFor: values.source === "personal" ? "this player" : "his position",
+          }
+        })
+        .filter((entry) => entry.tightMarking || entry.triggerPress || entry.tackling || entry.showOnto)
       result[sideLabel(model, side)] = {
         status: team.status,
-        tacticName: config.style.configurationName,
-        style: config.style.name,
-        mentality: config.mentality.name,
-        transition: config.transitionInstructions.map((instruction) => (instruction as { name?: string }).name).filter(Boolean),
-        inPossession: phase(config.inPossession),
-        outOfPossession: phase(config.outOfPossession),
-        roles: model.metadata?.players
-          .filter((player) => player.team === side && (player.inPossession || player.outOfPossession))
-          .map((player) => ({
-            player: player.displayName,
-            inPossession: player.inPossession ? `${player.inPossession.position} ${player.inPossession.role}${player.inPossession.duty ? ` (${player.inPossession.duty})` : ""}` : undefined,
-            outOfPossession: player.outOfPossession ? `${player.outOfPossession.position} ${player.outOfPossession.role}${player.outOfPossession.duty ? ` (${player.outOfPossession.duty})` : ""}` : undefined,
-          })),
+        tacticName: config.style.configurationName || undefined,
+        style: config.style.name ? humanize(config.style.name) : undefined,
+        mentality: humanize(config.mentality.name),
+        inPossession: { formation: config.inPossession.formation.displayName, instructions: names(config.inPossession.teamInstructions) },
+        transition: names(config.transitionInstructions).length > 0 ? names(config.transitionInstructions) : undefined,
+        outOfPossession: { formation: config.outOfPossession.formation.displayName, instructions: names(config.outOfPossession.teamInstructions) },
+        players,
+        oppositionInstructions: opposition.length > 0 ? opposition : undefined,
+        changes: tacticChanges(model, side),
       }
     }
     return result
   } catch (error) {
     return { available: false, reason: `The captured tactic could not be decoded: ${(error as Error).message}` }
+  }
+}
+
+/** What changed in a team's tactic during the match, from one sampled version to the next. */
+function tacticChanges(model: MatchModel, side: Side) {
+  const versions = model.tacticVersions.filter((version) => version.side === side)
+  const changes: Array<{ minute: string; changed: string[] }> = []
+  for (let index = 1; index < versions.length; index++) {
+    const before = versions[index - 1].config
+    const after = versions[index].config
+    const changed: string[] = []
+    if (before.mentality !== after.mentality) changed.push(`mentality ${mentalityName(before)} -> ${mentalityName(after)}`)
+    const formation = (config: TacticalConfiguration, inPossession: boolean) =>
+      (inPossession ? config.inPossession : config.outOfPossession).map((position) => decodeAssignment(position.positionMask, position.roleDuty, inPossession))
+    for (const inPossession of [true, false]) {
+      const was = formation(before, inPossession)
+      const now = formation(after, inPossession)
+      now.forEach((assignment, slot) => {
+        const old = assignmentLabel(was[slot])
+        const next = assignmentLabel(assignment)
+        if (old !== next) changed.push(`${inPossession ? "" : "out of possession: "}${old ?? "?"} -> ${next ?? "?"}`)
+      })
+    }
+    const instructionNames = (config: TacticalConfiguration) => new Set(teamInstructionNames(config))
+    const was = instructionNames(before)
+    const now = instructionNames(after)
+    for (const name of now) if (!was.has(name)) changed.push(`added ${name}`)
+    for (const name of was) if (!now.has(name)) changed.push(`dropped ${name}`)
+    if (changed.length > 0) changes.push({ minute: eventTime(model, versions[index].tick).minute, changed })
+  }
+  return changes.length > 0 ? changes : undefined
+}
+
+function mentalityName(config: TacticalConfiguration): string {
+  const names = ["none", "very defensive", "defensive", "cautious", "balanced", "positive", "attacking", "very attacking"]
+  return names[config.mentality] ?? `mentality ${config.mentality}`
+}
+
+function teamInstructionNames(config: TacticalConfiguration): string[] {
+  try {
+    return decodeTeamInstructions(config.teamInstructions)
+      .map((instruction) => (instruction as { name?: string }).name)
+      .filter((name): name is string => Boolean(name))
+      .map(humanize)
+  } catch {
+    return []
   }
 }

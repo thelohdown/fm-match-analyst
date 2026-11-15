@@ -57,7 +57,7 @@ nothing is live.
 | `get_players` | Per player: zone, started/came on/went off, minutes, rating and its change, condition and sharpness and their change, and stats over the window |
 | `get_events` | Goals, shots (xG, outcome, location), cards, subs; on request big chances, corners, fouls, offsides, saves, key passes, turnovers |
 | `get_shape` | Average positions in and out of possession, defensive line, length, width, territory, pass network, where the ball is won and lost |
-| `get_tactic` | The captured tactic (not captured on macOS yet) |
+| `get_tactic` | The applied tactic: formations in and out of possession, each player's role and duty, mentality, team, transition, player and opposition instructions, and changes during the match |
 | `list_matches`, `load_match` | The live match and the archives; switch between them |
 
 Every tool that covers a stretch of play takes `half` (first, second, extra),
@@ -101,7 +101,8 @@ Environment: `FMMATCHLENS_API` (default `http://127.0.0.1:16726`),
 
 ## Known gaps
 
-- On macOS FMMatchLens does not capture tactics, positions/roles, attributes,
-  morale or season stats yet, so zones are inferred and `get_tactic` says so.
+- On macOS FMMatchLens does not capture attributes, morale or season stats yet.
+  Tactics are captured from FM27 27.0.1 on (matches recorded before that have
+  none, and zones are inferred from where players stood).
 - The analyst guidance (`analyst/fm-analyst.md`) is a first draft: it has not
   been through the blind test of match situations in the product plan.

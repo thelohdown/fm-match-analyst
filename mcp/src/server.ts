@@ -175,7 +175,7 @@ export function createServer(options: { apiUrl?: string; startLive?: boolean } =
     {
       title: "Tactic",
       description:
-        "The tactic FMMatchLens captured: mentality, style, formation in and out of possession, team, player and transition instructions, roles. Not captured on macOS yet; then it says so.",
+        "The tactic FM is applying, as FMMatchLens captured it: name, style, mentality, formation in and out of possession, team and transition instructions, each player's position, role and duty in both phases with player instructions, opposition instructions, and every change made during the match.",
       inputSchema: { team },
       annotations: readOnly,
     },
