@@ -20,7 +20,9 @@ On macOS the plugin now runs **FMMatchLens's normal capture** with a macOS offse
 | Human v AI manager | Mapped: Itanium "offset to top" of the manager's person is 0x548 for a human manager and 0x208 for an AI one (Windows RTTI: 0x440 / 0x100) |
 | Capture session (picking the animated match, archive, API, dashboard) | Working live: a whole match locked with no missing ticks and was archived; the dashboard shows names, ratings, stats, goals and substitutions |
 | Momentum chart, shot map, xG timeline, heatmaps | Captured and archived. Replaying that match into the plugin's own API server (`./mac/dev.sh serve`) fills every panel in Chrome, both from kickoff and when the dashboard opens after full time. They were empty in the first live run, most likely because a dashboard opened late reads the whole match (about 1 GB of JSON) before drawing anything. The dashboard now draws each page as it arrives and logs history errors to the browser console instead of hiding them |
-| Attributes, position familiarity, condition, morale, ability, season stats | **Off on macOS**: the ActualPlayer part of the player record is laid out differently and not mapped |
+| In-match condition and sharpness | Captured (from the per-match stats object, laid out as on Windows) |
+| Match clock shown by the dashboard in the second half | **Off by up to a couple of minutes**: the macOS `DisplayTick` field (0x15454) does not restart at 45:00. FM's own event records show its clock is engine tick minus first-half stoppage; the MCP server (`mcp/`) computes it that way |
+| Attributes, position familiarity, morale, ability, season stats | **Off on macOS**: the ActualPlayer part of the player record is laid out differently and not mapped |
 | Tactics, rating research (rating engine internals) | **Off on macOS**: not mapped |
 
 `Memory/Offsets.cs` keeps one table: fields that differ on macOS are `static readonly`
@@ -33,6 +35,12 @@ match, both teams, their players, the players' records and names, stats objects 
 momentum events to `BepInEx/plugins/FMMatchLens/data/mac-probe/`, automatically at a few
 points and whenever a match stops for 5 seconds, or on request (`./mac/dev.sh snap`).
 `./mac/dev.sh logs` copies them to `local/probe/`; `mac/read_graph.py` reads them.
+
+### AI analyst (`mcp/`, `./mac/dev.sh mcp`)
+
+`mcp/` is a read-only MCP server that lets Claude or Codex analyse the match from
+FMMatchLens's capture; see `mcp/README.md`. `./mac/dev.sh mcp` opens its Claude
+Desktop bundle; `./mac/dev.sh mcp config` prints the Claude Code and Codex setup.
 
 ### Dashboard without the game (`./mac/dev.sh serve`)
 

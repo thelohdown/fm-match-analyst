@@ -22,6 +22,10 @@
 #                          trying the dashboard: speed 0 (default) loads the whole match at
 #                          once, as if the dashboard were opened at full time; 1 is real
 #                          time, 30 is 30x. The archive defaults to the newest one FM27 saved
+#   ./mac/dev.sh mcp [build|install|config]
+#                          the FM match analyst MCP server (mcp/): install opens its
+#                          Claude Desktop bundle (the default), config prints the setup
+#                          for Claude Code and Codex, build rebuilds it (needs npm)
 #   ./mac/dev.sh where     show where FM27 and BepInEx were found
 #
 # Paths can be overridden with FM27_DIR and BEPINEX_DIR.
@@ -410,6 +414,52 @@ cmd_dump() {
   echo "saved the API's answers to ${out#"$REPO"/} and the log to local/logs/latest.log"
 }
 
+mcp_build() {
+  if ! command -v npm >/dev/null 2>&1; then
+    echo "npm is not installed, so the MCP server cannot be rebuilt here. Install Node.js (nodejs.org) or use the bundle in mcp/dist."
+    return 1
+  fi
+  (cd "$REPO/mcp" && npm ci --no-audit --no-fund && node build.mjs --mcpb)
+}
+
+cmd_mcp() {
+  local bundle="$REPO/mcp/dist/fm-match-analyst.mcpb" server="$REPO/mcp/dist/server.mjs"
+  local stale=""
+  if [ ! -f "$bundle" ] || [ ! -f "$server" ]; then
+    stale="missing"
+  elif [ -n "$(find "$REPO/mcp/src" "$REPO/mcp/analyst" "$REPO/mcp/mcpb" "$REPO/frontend/src" -newer "$bundle" -print -quit 2>/dev/null)" ]; then
+    stale="older than its sources"
+  fi
+  case "${1:-install}" in
+    build)
+      mcp_build
+      ;;
+    install)
+      if [ -n "$stale" ]; then
+        echo "The MCP bundle is $stale; rebuilding..."
+        mcp_build || [ "$stale" != "missing" ] || exit 1
+      fi
+      open "$bundle"
+      echo "Opened $(basename "$bundle"): Claude Desktop should ask to install \"FM Match Analyst\"."
+      echo "Then, in a chat, ask about your match (with FM running and a match on), e.g. \"how is my match going?\""
+      ;;
+    config)
+      echo "Claude Code (needs Node.js 18+ on your PATH):"
+      echo "  claude mcp add --scope user fm-match-analyst -- node \"$server\""
+      echo
+      echo "Codex: add to ~/.codex/config.toml (needs Node.js 18+):"
+      echo "  [mcp_servers.fm-match-analyst]"
+      echo "  command = \"node\""
+      echo "  args = [\"$server\"]"
+      echo "  tool_timeout_sec = 90"
+      ;;
+    *)
+      echo "usage: ./mac/dev.sh mcp [install|config|build]"
+      exit 1
+      ;;
+  esac
+}
+
 cmd_health() {
   curl -sS --max-time 3 "$API" && echo || echo "No answer from $API (is FM27 running with the plugin loaded?)"
 }
@@ -425,6 +475,7 @@ case "${1:-}" in
   dashboard) cmd_dashboard ;;
   dump) cmd_dump ;;
   serve) cmd_serve "${2:-}" "${3:-}" ;;
+  mcp) cmd_mcp "${2:-}" ;;
   where) need_game; echo "BepInEx: $BEPINEX" ;;
-  *) sed -n '2,29p' "$0"; exit 1 ;;
+  *) sed -n '2,33p' "$0"; exit 1 ;;
 esac
