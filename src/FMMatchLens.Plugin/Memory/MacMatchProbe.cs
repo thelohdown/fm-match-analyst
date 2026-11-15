@@ -60,6 +60,9 @@ internal sealed class MacMatchProbe
     private const int MaxRecords = 4000;
     private const int ShirtNameCandidate = 0x38;
     private const string TriggerFileName = "snapshot-now";
+    private const int MomentumEventSourceCandidate = 0x14E98;
+    private const int MomentumEventSize = 0x38;
+    private const ulong MaxEventBytes = 0x38UL * 20000;
     private const int MaxManualSnapshots = 40;
     private const uint GraphMagic = 0x47504D46; // "FMPG"
     private const uint GraphVersion = 1;
@@ -368,6 +371,36 @@ internal sealed class MacMatchProbe
                 var value = BitConverter.ToUInt64(matchBytes, offset);
                 if (!IsHeapPointer(value)) continue;
                 if (graph.Add(value, value, MatchChildSize, root, offset, 1) >= 0) added++;
+            }
+        }
+
+        // Momentum events: match+0x14E98 (Windows 0x14EA8 - 0x10) points to the event source, whose
+        // +0x08/+0x10 are the begin/end of an array of 0x38-byte events, as on Windows.
+        var sourceIndex = graph.Records.FindIndex(r => r.Parent == root && r.ParentOffset == MomentumEventSourceCandidate);
+        if (sourceIndex >= 0 && graph.Records[sourceIndex].Data.Length >= 0x18)
+        {
+            var source = graph.Records[sourceIndex].Data;
+            var begin = BitConverter.ToUInt64(source, 0x08);
+            var end = BitConverter.ToUInt64(source, 0x10);
+            var length = end - begin;
+            if (begin != 0 && end > begin && length % MomentumEventSize == 0 && length <= MaxEventBytes &&
+                graph.Add(begin, begin, (int)length, sourceIndex, 0x08, 2) is var eventsIndex && eventsIndex >= 0)
+            {
+                var events = graph.Records[eventsIndex].Data;
+                var shots = new SortedDictionary<int, int>();
+                var onTarget = new SortedDictionary<int, int>();
+                for (var offset = 0; offset + MomentumEventSize <= events.Length; offset += MomentumEventSize)
+                {
+                    int team = events[offset + 0x28], type = events[offset + 0x2A];
+                    if (type is >= 1 and <= 5) shots[team] = shots.GetValueOrDefault(team) + 1;
+                    if (type is 1 or 4) onTarget[team] = onTarget.GetValueOrDefault(team) + 1;
+                }
+
+                summary.Append($" {events.Length / MomentumEventSize} momentum events; shots by team byte ");
+                summary.Append(string.Join(", ", shots.Select(p => $"{p.Key}:{p.Value}")));
+                summary.Append(", on target ");
+                summary.Append(string.Join(", ", onTarget.Select(p => $"{p.Key}:{p.Value}")));
+                summary.Append('.');
             }
         }
 
