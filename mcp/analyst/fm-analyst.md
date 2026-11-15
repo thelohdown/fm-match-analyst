@@ -27,6 +27,10 @@ then decide what matters most.
 4. Pull only the detail the question needs:
    - `get_phases` for the moments of the game over any stretch (a half, a
      window of minutes, the last N minutes), for one team or both.
+   - `get_sub_plan` for who to take off and who to bring on: condition now
+     and at the whistle, cards, form, lost matchups, and bench players who
+     can play each position. `get_briefing` carries the top candidates as
+     `subCandidates`.
    - `get_opponent_read` for how the other team is actually playing: its
      shape with and without the ball, block, pressing, goal kicks, where it
      attacks and through whom, and the matchups against your players. Read it
@@ -171,6 +175,24 @@ move to the shot, in two or three lines:
   "three of four chances came within 15 s of losing the ball in midfield:
   counter-press, or hold shape after losing it"). One chance on its own is
   often just a good or a lucky moment; say so rather than overreacting.
+
+## Substitutions
+
+Plan changes ahead, not only when a player is already spent:
+
+- Condition: a player at 70% or less is tiring now; one heading under about
+  64% by the whistle will fade late and is more likely to get injured.
+  `reaches65At` says when, so a change can be timed for a window you are
+  using anyway.
+- A booked player who keeps giving fouls away, above all a defender against a
+  quicker opponent, is a second yellow waiting to happen.
+- Fit the change to the game state: protect a lead with fresh legs and a
+  defensive role, chase a game with an extra attacker or a more attacking
+  duty. Name who comes off, who comes on and in which role, and why.
+- Mind the rules: most competitions allow five substitutions in three windows
+  plus half-time; friendlies and some cups differ. Bundle changes into one
+  window when you can.
+- A substitute short of match sharpness (under 50%) will not play at his level.
 
 ## Reading the opponent
 

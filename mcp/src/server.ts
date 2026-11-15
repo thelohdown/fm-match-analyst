@@ -11,6 +11,7 @@ import { changesReport } from "./changes"
 import { opponentRead } from "./opponent"
 import { defaultRoleWindow, roleReport } from "./roles"
 import { chanceStories } from "./sequences"
+import { subPlan } from "./subs"
 import { checkData, dataWarning } from "./checks"
 import { saveFeedback } from "./feedback"
 import { clockLabel } from "./clock"
@@ -136,7 +137,7 @@ export function createServer(options: { apiUrl?: string; startLive?: boolean } =
         "in possession (build-up/progression/final-third time, how often possessions reach the final third and box and through which channel, chance quality, crossing, passing); " +
         "out of possession (block and line height, where the opponent gets in, pressing, duels); transitions (regains, fast breaks, losses, counter-pressing, " +
         "shots within 15 s either way); set pieces; whether the tactic's team instructions are happening; shots in the last 20 minutes with how each came about; " +
-        "who is tiring, fading, struggling or standing out; tactics with recent changes; whether your latest change is working (before against after); how each goal came about; roles and player instructions that are clearly not happening; both shapes as actually played and the matchups that favour the opponent; the bench; the last 10 minutes' events. The last 15 minutes are set against earlier in the half for both teams.",
+        "who is tiring, fading, struggling or standing out; tactics with recent changes; whether your latest change is working (before against after); how each goal came about; roles and player instructions that are clearly not happening; both shapes as actually played and the matchups that favour the opponent; the top substitution candidates; the bench; the last 10 minutes' events. The last 15 minutes are set against earlier in the half for both teams.",
       inputSchema: {},
       annotations: readOnly,
     },
@@ -255,6 +256,26 @@ export function createServer(options: { apiUrl?: string; startLive?: boolean } =
         if (!selection) return { error: "No match data in that window yet." }
         const { sides, note } = views.resolveSides(model, args.team ?? "opponent")
         const result = opponentRead(model, sides[0], selection)
+        return note ? { ...result, teamNote: `${note} Showing ${views.teamName(model, sides[0])}.` } : result
+      })
+  )
+
+  server.registerTool(
+    "get_sub_plan",
+    {
+      title: "Who to take off, and who to bring on",
+      description:
+        "Substitution planner for one team (default: yours). For each player on the pitch: condition now and forecast to the whistle (from how fast it has dropped this half), " +
+        "the minute he goes under 65%, rating trend, a yellow card and fouls since, and whether he is losing his individual matchup. Candidates are ordered by how many reasons " +
+        "there are to take them off, each with the unused substitutes natural or accomplished in his position. Also the first players to tire, the bench (positions, condition, " +
+        "sharpness, key attributes) and the substitutions and windows already used.",
+      inputSchema: { team: z.enum(["mine", "opponent", "home", "away"]).optional().describe("Whose team: mine (default), opponent, home or away.") },
+      annotations: readOnly,
+    },
+    async (args) =>
+      withMatch(({ model }) => {
+        const { sides, note } = views.resolveSides(model, args.team ?? "mine")
+        const result = subPlan(model, sides[0])
         return note ? { ...result, teamNote: `${note} Showing ${views.teamName(model, sides[0])}.` } : result
       })
   )
@@ -545,8 +566,8 @@ export function createServer(options: { apiUrl?: string; startLive?: boolean } =
           content: {
             type: "text",
             text:
-              "Who should I substitute and who should come on? Use get_players for my team (with include_unused_subs) and the last 15 minutes, " +
-              "look at condition, rating trend and output, and check get_shape for where the replacement would need to play.",
+              "Who should I substitute and who should come on? Start with get_sub_plan for my team (condition forecast, cards, form, matchups and bench options), " +
+              "weigh it against the game state from get_briefing, and use get_players with include_attributes to compare a replacement with the player he would replace.",
           },
         },
       ],
