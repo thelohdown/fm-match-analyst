@@ -12,6 +12,54 @@ FMMatchLens saves after each match.
 
 ## Install
 
+**Codex** (alongside Claude; Node.js 22.12+ for building and Python 3.11+ required):
+
+```sh
+./mac/dev.sh mcp codex
+```
+
+This builds the same server used by Claude and adds `fm-match-analyst` to
+`~/.codex/config.toml` (or `$CODEX_HOME/config.toml`). It uses absolute Node and
+server paths, a 90-second tool timeout, and explicit API, archive and report
+settings. Existing configuration is backed up before the first addition;
+an existing `fm-match-analyst` entry with different settings is left unchanged.
+Open a new **local Codex session**, then ask "list my saved matches". Select a
+match and ask for a half-time briefing or substitution advice. The analyst guide
+is supplied through MCP instructions, so no separate Codex prompt is required.
+
+To inspect configuration without installing, run `./mac/dev.sh mcp codex-config`.
+If the server is already built, `python3 mac/setup_codex.py --install` registers
+it without downloading dependencies or rebuilding.
+Set `FMMATCHLENS_API`, `FMMATCHLENS_ARCHIVE_DIR`, or `FM_ANALYST_DATA_DIR` before
+setup to override the defaults. The game archive locations are still searched
+alongside the configured archive directory. Codex must run the server locally
+on the Mac to reach the game's loopback API and local files.
+
+Claude Desktop/Code settings are not modified. Both clients use the same tool
+definitions and guide; each starts its own server process and selects its own
+match. Reports and feedback share the configured data folder by default.
+
+**Local Codex versus managed Work chats:** a managed ChatGPT Work chat does not
+read `~/.codex/config.toml`, even when it can run shell commands on this Mac.
+Restarting that Work chat does not register these tools. In the desktop app,
+choose Codex and a Local environment for this repository; check `/mcp` for
+`fm-match-analyst`. The Codex CLI and IDE extension also use the local config.
+For Work itself, a supported Work plugin/connector integration would be a
+separate deliverable; the local stdio setup here does not provide that.
+See [OpenAI's developer settings documentation](https://learn.chatgpt.com/docs/developer-settings).
+
+Verify native Codex discovery and a real `list_matches` tool call:
+
+```sh
+python3 mac/check_codex.py
+```
+
+This uses Codex's own MCP client in a disposable configuration and an ephemeral
+thread, without starting a model turn or changing your normal configuration.
+It checks the built server, not tool availability in an already-open chat.
+Use `--codex /path/to/codex` if the CLI is neither on PATH nor bundled with
+`/Applications/ChatGPT.app`. The diagnostic uses the experimental app-server API.
+
 **Claude Desktop** (no Node.js needed; Claude Desktop runs it):
 
 ```
@@ -133,9 +181,17 @@ npm ci
 node build.mjs            # dist/server.mjs
 node build.mjs --mcpb     # also dist/fm-match-analyst.mcpb
 npm run typecheck
+npm run test:smoke       # built bundle: MCP handshake, tools, prompts, guide, archive list
+npm run test:smoke -- 2025-12-30-Chicago-vs-LAFC-1-0.fmlens  # also briefing and subs
 FM_ANALYST_TEST_ARCHIVE=../local/archives/2025-12-30-Chicago-vs-LAFC-1-0.fmlens npm test
 node scripts/call.mjs '[["get_match_state"],["get_players",{"team":"mine","last_minutes":15}]]'
 ```
+
+From the repository root, `./mac/dev.sh mcp build-server` installs dependencies
+and builds only the shared server; `./mac/dev.sh mcp build` also packages Claude
+Desktop's bundle, as before. Development uses Node.js 22.12+ (the bundled server
+itself targets Node.js 18.17+). Run `python3 mac/test_setup_codex.py` to check that
+Codex setup preserves existing configuration.
 
 `scripts/call.mjs` talks to the built server over stdio like a client would.
 Environment: `FMMATCHLENS_API` (default `http://127.0.0.1:16726`),

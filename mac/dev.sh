@@ -22,10 +22,12 @@
 #                          trying the dashboard: speed 0 (default) loads the whole match at
 #                          once, as if the dashboard were opened at full time; 1 is real
 #                          time, 30 is 30x. The archive defaults to the newest one FM27 saved
-#   ./mac/dev.sh mcp [build|install|config]
+#   ./mac/dev.sh mcp [build|build-server|install|config|codex|codex-config]
 #                          the FM match analyst MCP server (mcp/): install opens its
 #                          Claude Desktop bundle (the default), config prints the setup
 #                          for Claude Code and Codex, build rebuilds it (needs npm)
+#                          codex builds the shared server and adds Codex configuration;
+#                          codex-config prints it (both need Python 3.11+)
 #   ./mac/dev.sh where     show where FM27 and BepInEx were found
 #
 # Paths can be overridden with FM27_DIR and BEPINEX_DIR.
@@ -426,7 +428,7 @@ mcp_build() {
     echo "npm is not installed, so the MCP server cannot be rebuilt here. Install Node.js (nodejs.org) or use the bundle in mcp/dist."
     return 1
   fi
-  (cd "$REPO/mcp" && npm ci --no-audit --no-fund && node build.mjs --mcpb)
+  (cd "$REPO/mcp" && npm ci --no-audit --no-fund && node build.mjs "$@")
 }
 
 cmd_mcp() {
@@ -439,12 +441,22 @@ cmd_mcp() {
   fi
   case "${1:-install}" in
     build)
+      mcp_build --mcpb
+      ;;
+    build-server)
       mcp_build
+      ;;
+    codex)
+      mcp_build
+      python3 "$REPO/mac/setup_codex.py" --install
+      ;;
+    codex-config)
+      python3 "$REPO/mac/setup_codex.py"
       ;;
     install)
       if [ -n "$stale" ]; then
         echo "The MCP bundle is $stale; rebuilding..."
-        mcp_build || [ "$stale" != "missing" ] || exit 1
+        mcp_build --mcpb || [ "$stale" != "missing" ] || exit 1
       fi
       open "$bundle"
       echo "Opened $(basename "$bundle"): Claude Desktop should ask to install \"FM Match Analyst\"."
@@ -461,7 +473,7 @@ cmd_mcp() {
       echo "  tool_timeout_sec = 90"
       ;;
     *)
-      echo "usage: ./mac/dev.sh mcp [install|config|build]"
+      echo "usage: ./mac/dev.sh mcp [install|config|build|build-server|codex|codex-config]"
       exit 1
       ;;
   esac

@@ -12,6 +12,7 @@
     "build": "node build.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:smoke": "node scripts/smoke.mjs",
     "start": "node dist/server.mjs"
   },
   "dependencies": {

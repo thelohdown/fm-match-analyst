@@ -44,6 +44,9 @@ points and whenever a match stops for 5 seconds, or on request (`./mac/dev.sh sn
 FMMatchLens's capture, organised by the moments of the game (in possession, out of
 possession, transitions, set pieces); see `mcp/README.md`. `./mac/dev.sh mcp` opens its
 Claude Desktop bundle; `./mac/dev.sh mcp config` prints the Claude Code and Codex setup.
+`./mac/dev.sh mcp codex` builds the shared server and adds Codex configuration
+without modifying Claude settings (Node.js and Python 3.11+ required).
+`./mac/dev.sh mcp codex-config` only prints the suggested configuration.
 
 ### Dashboard without the game (`./mac/dev.sh serve`)
 
