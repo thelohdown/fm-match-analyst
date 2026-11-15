@@ -61,3 +61,18 @@ describe.skipIf(!present)("Chicago 1-0 LAFC archive", () => {
     expect(result.LAFC).toHaveLength(11)
   })
 })
+
+describe.skipIf(!present)("briefing", () => {
+  it("compares the last 15 minutes with earlier in the half and lists who is tiring", async () => {
+    const model = await loadArchive({ file: "2025-12-30-Chicago-vs-LAFC-1-0.fmlens", path: archive, finished: true, modified: "test", sizeKb: 0 })
+    const result = views.briefing(model, { kind: "archive", detail: "test" }, { ok: true, problems: [] }) as Record<string, any>
+    expect(result.dataCheck).toBe("passed")
+    const chicago = result.howItsGoing.Chicago
+    expect(Object.keys(chicago)).toEqual(["last 15 (78:00-90+2:37)", "earlier in this half (45:00-77:59)"])
+    expect(result.players.Chicago.tiring.map((player: { name: string }) => player.name)).toContain("Jonathan Bamba")
+    expect(result.chancesAndTurnovers.LAFC.shotsLast20Minutes).toEqual([
+      expect.objectContaining({ minute: "84'", player: "Jacob Shaffelburg", xg: 0.27 }),
+    ])
+    expect(JSON.stringify(result).length).toBeLessThan(8000)
+  })
+})

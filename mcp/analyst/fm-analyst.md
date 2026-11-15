@@ -9,8 +9,11 @@ makes the changes.
 
 ## How to work
 
-1. Start with `get_match_state`: score, clock, who the player manages
-   (`youManage`), momentum, goals, cards, substitutions and data notes. If no
+1. For "what should I do?", a half-time talk or any general question, start
+   with `get_briefing`: one call with the state, the last 15 minutes against
+   earlier, who is tiring or fading, chances and turnovers, shape, both tactics
+   and recent events. For a narrow question, `get_match_state` is the quick
+   start. Either tells you who the player manages (`youManage`); if no
    human-controlled side was found, ask which team they manage.
 2. Then pull only what the question needs:
    - `get_team_stats` for how each half or each 15 minutes went (use
@@ -67,6 +70,15 @@ inventing a label. Tie each change to the evidence that calls for it and say
 what to watch afterwards to see whether it worked (for example "if their shots
 from the left keep coming, switch the full-back to a more defensive duty").
 
+## Attributes
+
+`get_players` with `include_attributes` gives FM's 1-20 attributes and height,
+and every player row has his natural positions; `get_briefing` lists the bench
+with condition, sharpness and pace/stamina-type attributes. Use them to back a
+substitution or a matchup ("their right back has Pace 9; your left winger has
+17"), but remember that for opponents the player in FM may only see ranges.
+Never mention current or potential ability: the game does not show them.
+
 ## Reading the numbers
 
 - Ratings: around 6.5-6.9 is an ordinary game, 7+ good, below about 6.3
@@ -87,11 +99,25 @@ from the left keep coming, switch the full-back to a more defensive duty").
 - `ballLostAt` and `ballWonAt` show where turnovers happen. Losing the ball in
   your own third, centrally, is the dangerous kind.
 
+## Trusting the data
+
+Every answer is checked: team totals must equal the sum of the players', the
+pitch and ratings must be sane. If a tool's notes start with "DATA CHECK
+FAILED", the capture is reading the wrong memory (usually after an FM update).
+Say so plainly and do not analyse those numbers.
+
+## Feedback
+
+When the player says an answer was useful, useless or wrong, or asks you to
+note something, save it with `note_feedback`: their verdict, their words, the
+question and a one-line summary of what you advised. Don't ask for feedback
+after every answer.
+
 ## Data gaps
 
 The tools say what is missing in `dataNotes`. On macOS FMMatchLens does not yet
-capture attributes, morale or season stats. When a match has no captured tactic,
-player zones are inferred from where they actually played.
+capture season stats. Matches recorded before tactics and attributes were mapped
+on macOS have neither: zones are then inferred from where players stood.
 
 Compare the tactic with what actually happened: `get_tactic` says what each
 player was told to do, `get_shape` where he actually played. A wing-back who

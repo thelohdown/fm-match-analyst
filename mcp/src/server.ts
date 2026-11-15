@@ -6,6 +6,8 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import * as z from "zod"
 
 import guide from "../analyst/fm-analyst.md"
+import { checkData, dataWarning } from "./checks"
+import { saveFeedback } from "./feedback"
 import { clockLabel } from "./clock"
 import type { MatchModel } from "./model"
 import { DEFAULT_API, findArchive, listArchives, LiveSource, loadArchive, type ArchiveEntry } from "./sources"
@@ -70,8 +72,10 @@ export function createServer(options: { apiUrl?: string; startLive?: boolean } =
     try {
       const result = await current()
       if ("error" in result) return failure(result.error)
+      const warning = dataWarning(checkData(result.model))
+      const notes = warning ? [warning, ...result.notes] : result.notes
       const body = build(result) as Record<string, unknown>
-      return reply(result.notes.length > 0 ? { notes: result.notes, ...body } : body)
+      return reply(notes.length > 0 ? { notes, ...body } : body)
     } catch (error) {
       return failure(`Could not read the match: ${(error as Error).message}`)
     }
@@ -110,6 +114,18 @@ export function createServer(options: { apiUrl?: string; startLive?: boolean } =
   )
 
   server.registerTool(
+    "get_briefing",
+    {
+      title: "Briefing",
+      description:
+        "The whole picture in one call, best for 'what should I do?' or a half-time talk: score and clock, the last 15 minutes against earlier in the half for both teams (xG, shots, possession, territory, passing), momentum, who is tiring, fading, struggling or standing out, the danger (shots in the last 20 minutes, where the ball is being lost), shape lately against earlier, both tactics with recent changes, the last 10 minutes' events and substitutions made. Follow up with the other tools for detail.",
+      inputSchema: {},
+      annotations: readOnly,
+    },
+    async () => withMatch(({ model, source }) => views.briefing(model, source, checkData(model)))
+  )
+
+  server.registerTool(
     "get_team_stats",
     {
       title: "Team stats",
@@ -129,15 +145,17 @@ export function createServer(options: { apiUrl?: string; startLive?: boolean } =
     {
       title: "Players",
       description:
-        "Per player: zone played, whether they started or came on/off and when, minutes, FM match rating (and its change over the window), physical condition % and sharpness (and change), and their stats over the window: goals, assists, xG, xA, shots, key passes, passes, progressive passes, crosses, dribbles, tackles, interceptions, clearances, aerials, fouls, distance, saves, cards.",
+        "Per player: position and role (from the tactic, or inferred from where he played), natural positions, whether they started or came on/off and when, minutes, FM match rating (and its change over the window), physical condition % and sharpness (and change), and their stats over the window: goals, assists, xG, xA, shots, key passes, passes, progressive passes, crosses, dribbles, tackles, interceptions, clearances, aerials, fouls, distance, saves, cards. Optionally attributes.",
       inputSchema: {
         team,
         include_unused_subs: z.boolean().optional().describe("Also list substitutes who have not played (to pick who to bring on)."),
+        include_attributes: z.boolean().optional().describe("Add each player's attributes (FM's 1-20 values) and height, e.g. to compare a substitute with a tiring starter or a matchup."),
         ...windowFields,
       },
       annotations: readOnly,
     },
-    async (args) => withMatch(({ model }) => views.players(model, args.team, toWindow(args), args.include_unused_subs ?? false))
+    async (args) =>
+      withMatch(({ model }) => views.players(model, args.team, toWindow(args), args.include_unused_subs ?? false, args.include_attributes ?? false))
   )
 
   server.registerTool(
@@ -233,6 +251,36 @@ export function createServer(options: { apiUrl?: string; startLive?: boolean } =
     }
   )
 
+  server.registerTool(
+    "note_feedback",
+    {
+      title: "Save feedback",
+      description:
+        "Save the user's verdict on an answer (useful, partly useful, not useful, wrong) with their words, the question and a short summary of what you advised, together with the match situation. Call it when the user says an answer was good, bad or wrong, or asks to note something. It only writes a local file.",
+      inputSchema: {
+        verdict: z.enum(["useful", "partly useful", "not useful", "wrong"]).describe("The user's verdict."),
+        note: z.string().min(1).max(2000).describe("What the user said, in their words."),
+        question: z.string().max(1000).optional().describe("The question the answer was for."),
+        answer_summary: z.string().max(2000).optional().describe("A short summary of what you advised."),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    async ({ verdict, note, question, answer_summary }) => {
+      try {
+        let match: Record<string, unknown> | undefined
+        const result = await current().catch(() => undefined)
+        if (result && !("error" in result)) {
+          const state = views.matchState(result.model, result.source)
+          match = { id: result.model.matchId, score: state.score, minute: state.minute, clock: state.clock, source: state.source, youManage: state.youManage }
+        }
+        const saved = await saveFeedback({ savedAt: new Date().toISOString(), verdict, note, question, answer: answer_summary, match })
+        return reply({ saved: true, file: saved.file, feedbackSoFar: saved.total })
+      } catch (error) {
+        return failure(`Could not save the feedback: ${(error as Error).message}`)
+      }
+    }
+  )
+
   server.registerPrompt(
     "half_time_briefing",
     {
@@ -246,7 +294,7 @@ export function createServer(options: { apiUrl?: string; startLive?: boolean } =
           content: {
             type: "text",
             text:
-              "Give me a briefing on my match as it stands, using the fm-match-analyst tools: what is working, what is not " +
+              "Give me a briefing on my match as it stands (start with get_briefing): what is working, what is not " +
               "(compare halves or the last 15 minutes), who is tiring or struggling, and two or three concrete changes with the evidence for each " +
               "and what to watch afterwards.",
           },

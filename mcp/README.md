@@ -52,13 +52,21 @@ nothing is live.
 
 | Tool | What it returns |
 | --- | --- |
+| `get_briefing` | Everything for "what should I do?" in one call: the last 15 minutes against earlier in the half, who is tiring, fading, struggling or standing out, each team's recent shots and where it loses the ball, shape lately against earlier, both tactics with recent changes, the last 10 minutes' events, and the bench with condition, sharpness and key attributes |
 | `get_match_state` | Score, clock, which team you manage, xG, shots, possession (match and last 10'), FM's momentum by five minutes and lately, goals, cards, substitutions, data gaps |
 | `get_team_stats` | Per half, per 15 minutes or one window: goals, xG, shots, clear-cut chances, possession, territory by third, passing, crosses, corners, aerials, tackles, fouls, offsides, cards |
-| `get_players` | Per player: zone, started/came on/went off, minutes, rating and its change, condition and sharpness and their change, and stats over the window |
+| `get_players` | Per player: position and role (from the tactic, or inferred), natural positions, started/came on/went off, minutes, rating and its change, condition and sharpness and their change, and stats over the window; with `include_attributes`, FM's 1-20 attributes and height (never current or potential ability, which the game does not show) |
 | `get_events` | Goals, shots (xG, outcome, location), cards, subs; on request big chances, corners, fouls, offsides, saves, key passes, turnovers |
 | `get_shape` | Average positions in and out of possession, defensive line, length, width, territory, pass network, where the ball is won and lost |
 | `get_tactic` | The applied tactic: formations in and out of possession, each player's role and duty, mentality, team, transition, player and opposition instructions, and changes during the match |
 | `list_matches`, `load_match` | The live match and the archives; switch between them |
+| `note_feedback` | Saves your verdict on an answer (with your words, the question, the advice and the match situation) to `feedback.jsonl` in `~/Documents/FM Match Analyst` or `FM_ANALYST_DATA_DIR` |
+
+Every answer is checked first: team totals must equal the sum of the players'
+(shots, shots on target, passes, fouls, xG, goals), the pitch, player counts,
+ratings and condition must be sane. If not, the answer opens with "DATA CHECK
+FAILED" and the analyst is told not to advise from those numbers; this is what
+an FM update that moves FMMatchLens's memory reads looks like.
 
 Every tool that covers a stretch of play takes `half` (first, second, extra),
 `from_minute`/`to_minute`, or `last_minutes`.
@@ -97,7 +105,7 @@ node scripts/call.mjs '[["get_match_state"],["get_players",{"team":"mine","last_
 Environment: `FMMATCHLENS_API` (default `http://127.0.0.1:16726`),
 `FMMATCHLENS_ARCHIVE_DIR` (extra archive folders, `:`-separated), and
 `FM_ANALYST_LIVE_WAIT_MS` (how long a tool waits for the live catch-up, default
-40000).
+40000) and `FM_ANALYST_DATA_DIR` (where feedback is saved).
 
 ## Known gaps
 

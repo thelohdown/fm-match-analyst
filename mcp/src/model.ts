@@ -510,6 +510,18 @@ export class MatchModel {
     }
   }
 
+  /** A selection of consecutive buckets by index (inclusive), for comparing stretches of play. */
+  selectIndices(first: number, last: number, label: string): WindowSelection | undefined {
+    const end = this.endState()
+    if (!end || first < 0 || last >= this.buckets.length || first > last) return undefined
+    return {
+      buckets: this.buckets.slice(first, last + 1),
+      start: first > 0 ? this.bucketEnd(first - 1) : undefined,
+      end: this.bucketEnd(last) ?? end,
+      label,
+    }
+  }
+
   private bucketEnd(index: number): StatState | undefined {
     const bucket = this.buckets[index]
     if (bucket.end) return bucket.end

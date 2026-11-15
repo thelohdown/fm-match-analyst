@@ -5,18 +5,29 @@
   "version": "0.0.0",
   "description": "Ask Claude about your live Football Manager match: stats, shots, players, shape and momentum from FMMatchLens's capture.",
   "long_description": "A read-only analyst for Football Manager 27. It reads the match FMMatchLens is capturing (its local API on 127.0.0.1:16726) or the match archives it saves, and gives Claude the score, momentum, team and player stats for any stretch of the match, every shot with xG and location, cards and substitutions, average positions and team shape in and out of possession, the pass network, and where the ball is won and lost. Pause a match and ask what is going wrong. It never changes anything in the game. Needs FM27 with BepInEx and the FMMatchLens plugin.",
-  "author": { "name": "Kendall Loh" },
+  "author": {
+    "name": "Kendall Loh"
+  },
   "license": "MIT",
-  "keywords": ["football manager", "fm27", "fmmatchlens", "match analysis", "tactics"],
+  "keywords": [
+    "football manager",
+    "fm27",
+    "fmmatchlens",
+    "match analysis",
+    "tactics"
+  ],
   "server": {
     "type": "node",
     "entry_point": "server/server.mjs",
     "mcp_config": {
       "command": "node",
-      "args": ["${__dirname}/server/server.mjs"],
+      "args": [
+        "${__dirname}/server/server.mjs"
+      ],
       "env": {
         "FMMATCHLENS_API": "${user_config.api_url}",
-        "FMMATCHLENS_ARCHIVE_DIR": "${user_config.archive_dir}"
+        "FMMATCHLENS_ARCHIVE_DIR": "${user_config.archive_dir}",
+        "FM_ANALYST_DATA_DIR": "${user_config.data_dir}"
       }
     }
   },
@@ -33,21 +44,64 @@
       "title": "Match archive folder",
       "description": "Folder with FMMatchLens's .fmlens match archives, if not in the usual place (FM27-BepInEx/BepInEx/plugins/FMMatchLens/data/matches under the game's Steam folder).",
       "required": false
+    },
+    "data_dir": {
+      "type": "directory",
+      "title": "Feedback folder",
+      "description": "Where your verdicts on answers are saved (feedback.jsonl). Leave empty for Documents/FM Match Analyst.",
+      "required": false
     }
   },
   "tools": [
-    { "name": "get_match_state", "description": "Score, clock, your team, xG, possession, momentum, goals, cards, substitutions." },
-    { "name": "get_team_stats", "description": "Team stats per half, per 15 minutes or for any window." },
-    { "name": "get_players", "description": "Ratings, condition, sharpness and stats per player, for the match or a window." },
-    { "name": "get_events", "description": "Shots with xG and location, goals, cards, subs, corners, fouls, saves, key passes, turnovers." },
-    { "name": "get_shape", "description": "Average positions in and out of possession, line height, length, width, pass network, where the ball is won and lost." },
-    { "name": "get_tactic", "description": "The applied tactic: formations, roles, instructions, mentality and changes." },
-    { "name": "list_matches", "description": "The live match and saved match archives." },
-    { "name": "load_match", "description": "Read the live match or a saved archive." }
+    {
+      "name": "get_briefing",
+      "description": "The whole picture in one call: last 15 minutes against earlier, who is tiring or fading, chances, shape, tactics, recent events."
+    },
+    {
+      "name": "get_match_state",
+      "description": "Score, clock, your team, xG, possession, momentum, goals, cards, substitutions."
+    },
+    {
+      "name": "get_team_stats",
+      "description": "Team stats per half, per 15 minutes or for any window."
+    },
+    {
+      "name": "get_players",
+      "description": "Ratings, condition, sharpness and stats per player, for the match or a window."
+    },
+    {
+      "name": "get_events",
+      "description": "Shots with xG and location, goals, cards, subs, corners, fouls, saves, key passes, turnovers."
+    },
+    {
+      "name": "get_shape",
+      "description": "Average positions in and out of possession, line height, length, width, pass network, where the ball is won and lost."
+    },
+    {
+      "name": "get_tactic",
+      "description": "The applied tactic: formations, roles, instructions, mentality and changes."
+    },
+    {
+      "name": "list_matches",
+      "description": "The live match and saved match archives."
+    },
+    {
+      "name": "load_match",
+      "description": "Read the live match or a saved archive."
+    },
+    {
+      "name": "note_feedback",
+      "description": "Save your verdict on an answer, with the match situation, to improve the analyst."
+    }
   ],
   "prompts_generated": true,
   "compatibility": {
-    "platforms": ["darwin", "win32"],
-    "runtimes": { "node": ">=18.17.0" }
+    "platforms": [
+      "darwin",
+      "win32"
+    ],
+    "runtimes": {
+      "node": ">=18.17.0"
+    }
   }
 }
