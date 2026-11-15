@@ -21,9 +21,13 @@ the macOS offsets are verified (`[macOS] Mode = probe` in
 hooks `GAME_MATCH` Advance, calls the original, then only reads: every 5 seconds
 per match object it logs candidate fields (ticks, period, lifecycle and check
 bytes, ball position, team pointers) at the shifted offsets, with the Windows
-offsets alongside, and it saves raw snapshots of the match object and both team
-objects to `BepInEx/plugins/FMMatchLens/data/mac-probe/`. `./mac/dev.sh logs`
-copies them to `local/probe/`.
+offsets alongside. A few times per match it saves a "graph" snapshot
+(`*-graph.bin`) to `BepInEx/plugins/FMMatchLens/data/mac-probe/`: the match
+object, both teams, the objects the teams point to (match players are the ones
+that point back to the match), and what those point to (people, names). It logs
+a one-line summary of each, including where the players point back to the
+match. `./mac/dev.sh logs` copies the files to `local/probe/`, and
+`mac/read_graph.py` reads them.
 
 ## One-time setup
 

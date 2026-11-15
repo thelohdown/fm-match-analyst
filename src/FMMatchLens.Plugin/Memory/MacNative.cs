@@ -187,6 +187,41 @@ internal static class MacNative
     }
 
     /// <summary>
+    /// Adds the mapped segments of a loaded image to <paramref name="spans"/> as absolute
+    /// [start, end) address ranges (__PAGEZERO excluded), so callers can tell pointers into
+    /// code and constant data apart from heap pointers.
+    /// </summary>
+    public static bool TryGetSegmentSpans(nint header, List<(ulong Start, ulong End)> spans)
+    {
+        if (!TryReadHeader(header, out var commands, out var commandCount, out _)) return false;
+
+        ulong? textVmAddress = null;
+        var segments = new List<(ulong VmAddress, ulong VmSize)>();
+        var cursor = commands;
+        for (var i = 0; i < commandCount; i++)
+        {
+            var command = (uint)Marshal.ReadInt32(cursor);
+            var size = (uint)Marshal.ReadInt32(cursor, 4);
+            if (size < 8) return false;
+            if (command == LcSegment64)
+            {
+                var name = ReadFixedString(cursor + 8, 16);
+                var vmAddress = (ulong)Marshal.ReadInt64(cursor, 24);
+                var vmSize = (ulong)Marshal.ReadInt64(cursor, 32);
+                if (name == "__TEXT") textVmAddress = vmAddress;
+                if (name != "__PAGEZERO" && vmSize > 0) segments.Add((vmAddress, vmSize));
+            }
+
+            cursor += (int)size;
+        }
+
+        if (textVmAddress is not { } textBase) return false;
+        var slide = (ulong)header - textBase;
+        foreach (var (vmAddress, vmSize) in segments) spans.Add((vmAddress + slide, vmAddress + slide + vmSize));
+        return true;
+    }
+
+    /// <summary>
     /// True when <paramref name="rva"/> is listed in the image's LC_FUNCTION_STARTS
     /// table. Detouring an address inside a function corrupts it, so this plays the
     /// role the unwind-table check plays on Windows.

@@ -10,9 +10,11 @@ namespace FMMatchLens.Plugin.Memory;
 /// <summary>
 /// macOS-only, read-only probe of the GAME_MATCH Advance function. It hooks the
 /// function located in the arm64 build, calls the original first, and then only
-/// reads: it logs a few candidate fields per match object and saves raw snapshots
-/// of the object, so the macOS layout can be checked against what the game shows.
-/// It runs instead of the full capture until the macOS offsets are verified.
+/// reads: it logs a few candidate fields per match object and saves "graph"
+/// snapshots of the match, its teams, the objects the teams point to (match
+/// players), and the objects those point to (people, names), so the macOS layout
+/// can be mapped offline. It runs instead of the full capture until the macOS
+/// offsets are verified.
 /// </summary>
 internal sealed class MacMatchProbe
 {
@@ -20,6 +22,7 @@ internal sealed class MacMatchProbe
     private static readonly (string Name, string Sha256, int Arm64Rva)[] KnownBuilds =
     [
         ("steam-mac-fm27-demo", "c1298708d883972529621746f3e91dd90254a5ebd3569d388322be38f0b0107a", 0x4499CC0),
+        ("steam-mac-fm27", "68adfde2e0588458c1830cb7e688855d9c61237973a7eb7a105af5ac4ed112a4", 0x44A6450),
     ];
 
     // Candidate macOS offsets: the Windows Offsets.GameMatch value minus 0x10, as
@@ -35,16 +38,35 @@ internal sealed class MacMatchProbe
 
     private const int SnapshotSize = 0x16000;
     private const int TeamSnapshotSize = 0x4000;
-    private const int MaxSnapshots = 60;
-    private const int MaxSnapshotsPerMatch = 6;
+    private const int MaxSnapshots = 24;
+    private const int MaxSnapshotsPerMatch = 4;
     private const int SnapshotAfterCalls = 50;
     private const int SnapshotEveryTicks = 1200;
+
+    // Graph snapshot sizes and limits (see DeepSnapshot).
+    private const int MatchChildSize = 0x800;
+    private const int TeamChildSize = 0x2000;
+    private const int TeamScanEnd = 0x800;
+    private const int PlayerScanEnd = 0x100;
+    private const int BackPointerScanEnd = 0x400;
+    private const int WindowBefore = 0x400;
+    private const int WindowSize = 0x800;
+    private const int WindowScan = 0x140;
+    private const int LeafSize = 0x80;
+    private const int MaxMatchChildren = 64;
+    private const int MaxTeamChildren = 160;
+    private const int MaxPlayerChildren = 12;
+    private const int MaxWindowChildren = 8;
+    private const int MaxRecords = 4000;
+    private const uint GraphMagic = 0x47504D46; // "FMPG"
+    private const uint GraphVersion = 1;
     private static readonly TimeSpan LogInterval = TimeSpan.FromSeconds(5);
 
     private readonly string _outputDirectory;
     private readonly MatchUpdateDelegate _hookDelegate;
     private readonly ConcurrentDictionary<nint, MatchState> _matches = new();
     private NativeDetourHandle? _detour;
+    private (ulong Start, ulong End)[] _imageSpans = [];
     private MatchUpdateDelegate? _original;
     private Timer? _retryTimer;
     private int _installing;
@@ -127,6 +149,8 @@ internal sealed class MacMatchProbe
                 return;
             }
 
+            _imageSpans = BuildImageSpans();
+            PluginLogger.Info($"[macOS probe] {_imageSpans.Length} image address ranges excluded from graph snapshots.");
             PluginLogger.Info($"[macOS probe] Detour provider: {NativeDetourCompat.DescribeProvider()}");
             _detour = NativeDetourCompat.CreateAndApply(header + rva, _hookDelegate, original => _original = original);
             PluginLogger.Info(
@@ -188,7 +212,7 @@ internal sealed class MacMatchProbe
             {
                 state.Snapshots++;
                 state.LastSnapshotTick = tick ?? state.LastSnapshotTick;
-                Snapshot(match, tick ?? -1, targetTick);
+                DeepSnapshot(match, tick ?? -1, targetTick);
             }
         }
     }
@@ -209,26 +233,134 @@ internal sealed class MacMatchProbe
         return text.ToString();
     }
 
-    private void Snapshot(nint match, int tick, int targetTick)
+    /// <summary>
+    /// Copies the match object, both team objects, and the objects reachable from them
+    /// into one "graph" file. Depth 1: heap objects the match points to near its team and
+    /// official fields, and every heap object the teams point to in their first 0x800
+    /// bytes. Objects among those that point back to the match are taken to be match
+    /// players; depth 2 copies a window around each heap object they point to in their
+    /// first 0x100 bytes (people, shirt names), and depth 3 the small objects those
+    /// point to (names). Pointers into loaded images (vtables, code) are skipped.
+    /// File layout: "FMPG", u32 version, u64 match, i32 tick, i32 targetTick,
+    /// u32 record count; then per record: u64 address, u64 pointer that led to it,
+    /// u32 size, i32 parent record, u32 offset in parent, u32 depth, bytes.
+    /// </summary>
+    private void DeepSnapshot(nint match, int tick, int targetTick)
     {
-        var size = VirtualMemory.IsReadable(match, SnapshotSize) ? SnapshotSize
-            : VirtualMemory.IsReadable(match, Tick + 0x100) ? Tick + 0x100 : 0;
-        if (size == 0) return;
-        var bytes = new byte[size];
-        Marshal.Copy(match, bytes, 0, size);
-        var home = CopyPointee(match + HomeTeam);
-        var away = CopyPointee(match + AwayTeam);
+        using var scope = VirtualMemory.BeginReadScope();
+        var graph = new Graph();
+        var matchAddress = (ulong)match;
+        var root = graph.Add(matchAddress, matchAddress, SnapshotSize, -1, 0, 0);
+        if (root < 0) return;
+
+        var summary = new StringBuilder();
+        var teams = new[] { ("home", HomeTeam), ("away", AwayTeam) };
+        var teamRecords = new List<(string Side, int Index)>();
+        foreach (var (side, field) in teams)
+        {
+            var pointer = ReadPointer(match + field);
+            if (pointer is not { } team) continue;
+            var index = graph.Add((ulong)team, (ulong)team, TeamSnapshotSize, root, field, 1);
+            if (index >= 0) teamRecords.Add((side, index));
+        }
+
+        // Objects the match points to around its officials, ball holders and teams.
+        var matchBytes = graph.Records[root].Data;
+        var added = 0;
+        foreach (var (start, end) in new[] { (0x600, 0x700), (0x14E00, 0x15560) })
+        {
+            for (var offset = start; offset + 8 <= end && offset + 8 <= matchBytes.Length && added < MaxMatchChildren; offset += 8)
+            {
+                var value = BitConverter.ToUInt64(matchBytes, offset);
+                if (!IsHeapPointer(value)) continue;
+                if (graph.Add(value, value, MatchChildSize, root, offset, 1) >= 0) added++;
+            }
+        }
+
+        foreach (var (side, teamIndex) in teamRecords)
+        {
+            var teamBytes = graph.Records[teamIndex].Data;
+            var players = new List<int>();
+            var backOffsets = new SortedDictionary<int, int>();
+            int firstOffset = int.MaxValue, lastOffset = -1, children = 0;
+            for (var offset = 0; offset + 8 <= TeamScanEnd && offset + 8 <= teamBytes.Length && children < MaxTeamChildren; offset += 8)
+            {
+                var value = BitConverter.ToUInt64(teamBytes, offset);
+                if (!IsHeapPointer(value) || value == matchAddress) continue;
+                var child = graph.Add(value, value, TeamChildSize, teamIndex, offset, 2);
+                if (child < 0) continue;
+                children++;
+                var back = FindQword(graph.Records[child].Data, matchAddress, BackPointerScanEnd);
+                if (back < 0) continue;
+                players.Add(child);
+                backOffsets[back] = backOffsets.GetValueOrDefault(back) + 1;
+                firstOffset = Math.Min(firstOffset, offset);
+                lastOffset = Math.Max(lastOffset, offset);
+            }
+
+            foreach (var player in players)
+            {
+                var playerBytes = graph.Records[player].Data;
+                var windows = 0;
+                for (var offset = 0; offset + 8 <= PlayerScanEnd && windows < MaxPlayerChildren; offset += 8)
+                {
+                    var value = BitConverter.ToUInt64(playerBytes, offset);
+                    if (!IsHeapPointer(value) || value == matchAddress) continue;
+                    var window = graph.AddWindow(value, WindowBefore, WindowSize, player, offset, 3);
+                    if (window < 0) continue;
+                    windows++;
+
+                    var record = graph.Records[window];
+                    var anchor = (int)(value - record.Address);
+                    var leaves = 0;
+                    for (var inner = anchor; inner + 8 <= anchor + WindowScan && inner + 8 <= record.Data.Length && leaves < MaxWindowChildren; inner += 8)
+                    {
+                        var leaf = BitConverter.ToUInt64(record.Data, inner);
+                        if (!IsHeapPointer(leaf)) continue;
+                        if (graph.Add(leaf, leaf, LeafSize, window, inner, 4) >= 0) leaves++;
+                    }
+                }
+            }
+
+            summary.Append($" {side}: {children} objects, {players.Count} point back to the match");
+            if (players.Count > 0)
+            {
+                summary.Append($" (at {string.Join(", ", backOffsets.Select(p => $"+0x{p.Key:X}x{p.Value}"))};");
+                summary.Append($" from team offsets 0x{firstOffset:X}-0x{lastOffset:X})");
+            }
+            summary.Append('.');
+        }
+
         var stamp = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss-fff");
-        var baseName = $"match-{(ulong)match:X}-tick{tick}-target{targetTick}-{stamp}";
+        var fileName = $"match-{matchAddress:X}-tick{tick}-target{targetTick}-{stamp}-graph.bin";
+        PluginLogger.Info(
+            $"[macOS probe] Graph snapshot at tick {tick}: {graph.Records.Count} objects, " +
+            $"{graph.Bytes / 1024} KiB.{summary}");
+
         var directory = _outputDirectory;
         Task.Run(() =>
         {
             try
             {
                 Directory.CreateDirectory(directory);
-                File.WriteAllBytes(Path.Combine(directory, baseName + ".bin"), bytes);
-                if (home is not null) File.WriteAllBytes(Path.Combine(directory, baseName + "-home.bin"), home);
-                if (away is not null) File.WriteAllBytes(Path.Combine(directory, baseName + "-away.bin"), away);
+                using var stream = File.Create(Path.Combine(directory, fileName));
+                using var writer = new BinaryWriter(stream);
+                writer.Write(GraphMagic);
+                writer.Write(GraphVersion);
+                writer.Write(matchAddress);
+                writer.Write(tick);
+                writer.Write(targetTick);
+                writer.Write((uint)graph.Records.Count);
+                foreach (var record in graph.Records)
+                {
+                    writer.Write(record.Address);
+                    writer.Write(record.Pointer);
+                    writer.Write((uint)record.Data.Length);
+                    writer.Write(record.Parent);
+                    writer.Write((uint)record.ParentOffset);
+                    writer.Write((uint)record.Depth);
+                    writer.Write(record.Data);
+                }
             }
             catch (Exception ex)
             {
@@ -237,14 +369,89 @@ internal sealed class MacMatchProbe
         });
     }
 
-    private static byte[]? CopyPointee(nint field)
+    private bool IsHeapPointer(ulong value)
     {
-        var pointer = ReadPointer(field);
-        if (pointer is not { } target || !VirtualMemory.IsReadable(target, TeamSnapshotSize)) return null;
-        var bytes = new byte[TeamSnapshotSize];
-        Marshal.Copy(target, bytes, 0, TeamSnapshotSize);
-        return bytes;
+        if (value < 0x1_0000_0000UL || value >= 0x8000_0000_0000UL || (value & 7) != 0) return false;
+        var spans = _imageSpans;
+        int low = 0, high = spans.Length - 1;
+        while (low <= high)
+        {
+            var mid = (low + high) >>> 1;
+            if (spans[mid].End <= value) low = mid + 1;
+            else if (spans[mid].Start > value) high = mid - 1;
+            else return false;
+        }
+
+        return true;
     }
+
+    private static (ulong Start, ulong End)[] BuildImageSpans()
+    {
+        var spans = new List<(ulong Start, ulong End)>();
+        foreach (var image in MacNative.FindImages(string.Empty))
+        {
+            try { MacNative.TryGetSegmentSpans(image.Header, spans); }
+            catch { /* an image without readable load commands is simply not excluded */ }
+        }
+
+        spans.Sort();
+        var merged = new List<(ulong Start, ulong End)>();
+        foreach (var span in spans)
+        {
+            if (merged.Count > 0 && span.Start <= merged[^1].End)
+                merged[^1] = (merged[^1].Start, Math.Max(merged[^1].End, span.End));
+            else merged.Add(span);
+        }
+
+        return merged.ToArray();
+    }
+
+    private static int FindQword(byte[] data, ulong value, int scanEnd)
+    {
+        for (var offset = 0; offset + 8 <= scanEnd && offset + 8 <= data.Length; offset += 8)
+        {
+            if (BitConverter.ToUInt64(data, offset) == value) return offset;
+        }
+
+        return -1;
+    }
+
+    private sealed class Graph
+    {
+        public readonly List<GraphRecord> Records = [];
+        private readonly HashSet<ulong> _seen = [];
+        public long Bytes;
+
+        /// <summary>Copies up to <paramref name="size"/> readable bytes at <paramref name="address"/>.</summary>
+        public int Add(ulong address, ulong pointer, int size, int parent, int parentOffset, int depth)
+        {
+            if (Records.Count >= MaxRecords || !_seen.Add(pointer)) return -1;
+            for (var length = size; length >= 0x40; length /= 2)
+            {
+                if (!VirtualMemory.IsReadable((nint)(long)address, length)) continue;
+                var data = new byte[length];
+                Marshal.Copy((nint)(long)address, data, 0, length);
+                Records.Add(new GraphRecord(address, pointer, parent, parentOffset, depth, data));
+                Bytes += length;
+                return Records.Count - 1;
+            }
+
+            return -1;
+        }
+
+        /// <summary>Copies a window that starts <paramref name="before"/> bytes ahead of the pointer when readable.</summary>
+        public int AddWindow(ulong pointer, int before, int size, int parent, int parentOffset, int depth)
+        {
+            if (Records.Count >= MaxRecords || _seen.Contains(pointer)) return -1;
+            var start = pointer - (ulong)before;
+            if (VirtualMemory.IsReadable((nint)(long)start, size))
+                return Add(start, pointer, size, parent, parentOffset, depth);
+            return Add(pointer, pointer, size - before, parent, parentOffset, depth);
+        }
+    }
+
+    private readonly record struct GraphRecord(
+        ulong Address, ulong Pointer, int Parent, int ParentOffset, int Depth, byte[] Data);
 
     private static int? ReadInt32(nint address) =>
         VirtualMemory.IsReadable(address, 4) ? Marshal.ReadInt32(address) : null;
