@@ -62,6 +62,10 @@
       "description": "In possession, out of possession, transitions and set pieces for any stretch of play."
     },
     {
+      "name": "get_sequences",
+      "description": "Why did that goal happen? Each goal and big chance traced back to the start of its move, with the moment of the shot and patterns."
+    },
+    {
       "name": "get_changes",
       "description": "Did the change work? Each tactical change: the stretch before against the stretch after, and what else happened."
     },

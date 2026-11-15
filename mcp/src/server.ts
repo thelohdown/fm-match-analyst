@@ -8,6 +8,7 @@ import * as z from "zod"
 import guide from "../analyst/fm-analyst.md"
 import { briefing } from "./briefing"
 import { changesReport } from "./changes"
+import { chanceStories } from "./sequences"
 import { checkData, dataWarning } from "./checks"
 import { saveFeedback } from "./feedback"
 import { clockLabel } from "./clock"
@@ -133,7 +134,7 @@ export function createServer(options: { apiUrl?: string; startLive?: boolean } =
         "in possession (build-up/progression/final-third time, how often possessions reach the final third and box and through which channel, chance quality, crossing, passing); " +
         "out of possession (block and line height, where the opponent gets in, pressing, duels); transitions (regains, fast breaks, losses, counter-pressing, " +
         "shots within 15 s either way); set pieces; whether the tactic's team instructions are happening; shots in the last 20 minutes with how each came about; " +
-        "who is tiring, fading, struggling or standing out; tactics with recent changes; whether your latest change is working (before against after); the bench; the last 10 minutes' events. The last 15 minutes are set against earlier in the half for both teams.",
+        "who is tiring, fading, struggling or standing out; tactics with recent changes; whether your latest change is working (before against after); how each goal came about; the bench; the last 10 minutes' events. The last 15 minutes are set against earlier in the half for both teams.",
       inputSchema: {},
       annotations: readOnly,
     },
@@ -177,6 +178,36 @@ export function createServer(options: { apiUrl?: string; startLive?: boolean } =
       withMatch(({ model }) => {
         const { sides, note } = views.resolveSides(model, args.team ?? "mine")
         return changesReport(model, sides, note)
+      })
+  )
+
+  server.registerTool(
+    "get_sequences",
+    {
+      title: "How the chances came about",
+      description:
+        "Why did that goal happen? For each goal and big chance (clear-cut or 0.3 xG and up), the possession it came from traced back to its start: " +
+        "who won the ball and who lost it, and where, or which restart it came from; the players who had the ball on the way; how many passes, how fast, " +
+        "and through which channel; and the moment of the shot: the nearest defender, defenders in the way, attackers v defenders in the box, and the defending " +
+        "team's line and width against how it usually stood. Then what the chances a team conceded or created have in common. Defaults to both teams, whole match.",
+      inputSchema: {
+        team: z
+          .enum(["mine", "opponent", "home", "away", "both"])
+          .optional()
+          .describe("Whose chances: mine (the user's team's chances), opponent (chances against the user), home, away or both (default)."),
+        which: z.enum(["goals", "big_chances", "both"]).optional().describe("goals only, big chances that were not goals, or both (default)."),
+        ...windowFields,
+        limit: z.number().int().min(1).max(50).optional().describe("Most chances to tell (latest kept); default 20."),
+      },
+      annotations: readOnly,
+    },
+    async (args) =>
+      withMatch(({ model }) => {
+        const selection = model.select(toWindow(args))
+        if (!selection) return { error: "No match data in that window yet." }
+        const { sides, note } = views.resolveSides(model, args.team)
+        const result = chanceStories(model, sides, selection, args.which ?? "both", args.limit ?? 20)
+        return note ? { note, ...result } : result
       })
   )
 

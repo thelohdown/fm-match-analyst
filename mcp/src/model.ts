@@ -169,6 +169,11 @@ export type WindowSelection = {
 }
 
 const POSITION_SAMPLE_EVERY_TICKS = TICKS_PER_SECOND
+/** Everyone's position is kept on every tick with the ball this close to a goal line (metres), to read the moment of a shot. */
+const GOAL_AREA_DEPTH_M = 35
+
+/** Everyone on the pitch at one tick: ids[i] stands at (xy[2i], xy[2i+1]) in metres. */
+export type PositionFrame = { tick: number; ids: Int32Array; xy: Float32Array }
 
 export class MatchModel {
   readonly matchId: string
@@ -182,6 +187,8 @@ export class MatchModel {
   readonly tacticVersions: TacticVersion[] = []
   readonly possession = new PossessionTracker()
   readonly shapeSamples: ShapeSample[] = []
+  /** Ticks with the ball near either goal (see GOAL_AREA_DEPTH_M). */
+  readonly goalAreaFrames: PositionFrame[] = []
   lastClockSeconds = 0
   frameCount = 0
   halfLength = 52.5
@@ -254,6 +261,8 @@ export class MatchModel {
       this.current.endSeconds = clock
       this.current.endTick = frame.tick
       this.possession.observe(frame, this.halfLength, this.halfWidth)
+      const ballY = frame.ballYCentimeters / 100
+      if (Number.isFinite(ballY) && Math.abs(ballY) >= this.halfLength - GOAL_AREA_DEPTH_M) this.recordPositions(frame)
       if (frame.tick % POSITION_SAMPLE_EVERY_TICKS === 0 && frame.possessionTeam != null) {
         this.samplePositions(this.current, frame)
       }
@@ -284,6 +293,34 @@ export class MatchModel {
       this.tacticKeys[side] = key
       this.tacticVersions.push({ tick, side, config })
     }
+  }
+
+  private recordPositions(frame: RealtimeFrame) {
+    const onPitch = frame.players.filter((player) => player.isOnPitch && Number.isFinite(player.x) && Number.isFinite(player.y))
+    const ids = new Int32Array(onPitch.length)
+    const xy = new Float32Array(onPitch.length * 2)
+    onPitch.forEach((player, index) => {
+      ids[index] = player.playerId
+      xy[2 * index] = player.x
+      xy[2 * index + 1] = player.y
+    })
+    this.goalAreaFrames.push({ tick: frame.tick, ids, xy })
+  }
+
+  /** Everyone's position at (or just before) a tick with the ball near a goal. */
+  positionsAt(tick: number, toleranceTicks = 4): PositionFrame | undefined {
+    const frames = this.goalAreaFrames
+    let low = 0
+    let high = frames.length - 1
+    let found: PositionFrame | undefined
+    while (low <= high) {
+      const middle = (low + high) >> 1
+      if (frames[middle].tick <= tick) {
+        found = frames[middle]
+        low = middle + 1
+      } else high = middle - 1
+    }
+    return found && tick - found.tick <= toleranceTicks ? found : undefined
   }
 
   /** Match clock in seconds for a frame (see clock.ts). */

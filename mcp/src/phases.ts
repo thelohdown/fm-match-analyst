@@ -53,6 +53,10 @@ export type PossessionSpell = {
   entryNeg?: { tick: number; x: number }
   boxPos?: number
   boxNeg?: number
+  /** Last tick the ball was out of play while this team kept it (a throw-in, corner or free kick of its own mid-spell). */
+  lastOutTick?: number
+  /** Each player who had the ball during the spell, in order, with where he got it (metres). Either team, since scrambles merge. */
+  holders: Array<{ tick: number; playerId: number; x: number; y: number }>
 }
 
 /** Follows possession frame by frame. Frames with nobody on the ball leave the current spell open. */
@@ -95,12 +99,18 @@ export class PossessionTracker {
           startX: x,
           startY: y,
           sinceOut: frame.tick - this.lastOutTick,
+          holders: [],
         }
         this.spells.push(current)
       }
     }
     current.endTick = frame.tick
-    if (out) return
+    if (out) {
+      if (current.startTick < frame.tick) current.lastOutTick = frame.tick
+      return
+    }
+    const holder = frame.ballHolderPlayerId
+    if (holder != null && current.holders.at(-1)?.playerId !== holder) current.holders.push({ tick: frame.tick, playerId: holder, x, y })
     const third = halfLength / 3
     if (y > third && !current.entryPos) current.entryPos = { tick: frame.tick, x }
     if (y < -third && !current.entryNeg) current.entryNeg = { tick: frame.tick, x }

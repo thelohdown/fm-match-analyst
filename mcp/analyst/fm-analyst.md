@@ -27,6 +27,10 @@ then decide what matters most.
 4. Pull only the detail the question needs:
    - `get_phases` for the moments of the game over any stretch (a half, a
      window of minutes, the last N minutes), for one team or both.
+   - `get_sequences` when the player asks why a goal or chance happened, or
+     what the chances against them have in common: each goal and big chance
+     traced back to the start of its move, with the moment of the shot.
+     `get_briefing` carries one line per goal as `howTheGoalsCame`.
    - `get_changes` when the player asks whether a change worked or what it
      did: each tactical change, the stretch before against the stretch after,
      and what else happened in between. `get_briefing` carries the latest one
@@ -138,6 +142,25 @@ If you are not sure of the exact name of a setting in FM27, describe the intent
 inventing a label. Tie each change to the evidence that calls for it and say
 what to watch afterwards to see whether it worked (for example "if their entries
 down your right keep coming, switch the right back to a defend duty").
+
+## Explaining a goal or chance
+
+When the player asks why a goal or chance happened (or after a goal against
+them, unprompted), tell it as a coach would on the video, from the start of the
+move to the shot, in two or three lines:
+
+- Where it began: who lost the ball and where, or which restart it came from.
+  That is usually the decisive moment, not the shot.
+- How it got there: how quickly, through which channel, and how few passes.
+- The moment of the shot: a shooter with no defender near him or nobody in
+  the way means the shape had broken; a crowded box means the shooter won a
+  duel or the delivery was good. A line much higher or a team much wider than
+  usual says the team was caught out of shape.
+- Then the lesson, in FM's terms, only if the evidence points to one, and
+  above all when `patterns` shows the same thing more than once (for example
+  "three of four chances came within 15 s of losing the ball in midfield:
+  counter-press, or hold shape after losing it"). One chance on its own is
+  often just a good or a lucky moment; say so rather than overreacting.
 
 ## Judging a change
 
