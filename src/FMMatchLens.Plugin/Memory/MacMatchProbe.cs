@@ -66,6 +66,7 @@ internal sealed class MacMatchProbe
     private const int MomentumEventSize = 0x38;
     private const ulong MaxEventBytes = 0x38UL * 20000;
     private const int MaxManualSnapshots = 40;
+    private const long IdleMatchMaxAgeMs = 2 * 60 * 60 * 1000;
     private const uint GraphMagic = 0x47504D46; // "FMPG"
     private const uint GraphVersion = 1;
     private static readonly TimeSpan LogInterval = TimeSpan.FromSeconds(5);
@@ -77,6 +78,8 @@ internal sealed class MacMatchProbe
     private (ulong Start, ulong End)[] _imageSpans = [];
     private MatchUpdateDelegate? _original;
     private Timer? _retryTimer;
+    private Timer? _idleTimer;
+    private long _generationStartedAt;
     private int _installing;
     private int _snapshots;
     private int _manualSnapshots;
@@ -98,12 +101,15 @@ internal sealed class MacMatchProbe
     {
         PluginLogger.Info($"[macOS probe] Read-only probe mode; snapshots go to {_outputDirectory}.");
         _retryTimer = new Timer(_ => TryInstall(), null, TimeSpan.Zero, TimeSpan.FromSeconds(1));
+        _idleTimer = new Timer(_ => SnapshotIdleMatches(), null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
     }
 
     public void Stop()
     {
         _retryTimer?.Dispose();
         _retryTimer = null;
+        _idleTimer?.Dispose();
+        _idleTimer = null;
         _detour?.Dispose();
         _detour = null;
         _original = null;
@@ -202,9 +208,11 @@ internal sealed class MacMatchProbe
     {
         var state = _matches.GetOrAdd(match, _ => new MatchState());
         var calls = Interlocked.Increment(ref state.Calls);
+        Volatile.Write(ref state.LastCallAt, Environment.TickCount64);
         lock (state)
         {
             state.Modes.Add(mode);
+            if (calls == 1 || state.HomeTeam == 0) state.HomeTeam = ReadPointer(match + HomeTeam) ?? 0;
             state.LastTargetTick = targetTick;
             var tick = ReadInt32(match + Tick);
             var now = DateTime.UtcNow;
@@ -250,8 +258,47 @@ internal sealed class MacMatchProbe
         var path = Path.Combine(_outputDirectory, TriggerFileName);
         if (!File.Exists(path)) return;
         try { File.Delete(path); } catch { /* the next check would see it again; a second round is harmless */ }
+        Interlocked.Exchange(ref _generationStartedAt, now);
         var generation = Interlocked.Increment(ref _manualGeneration);
-        PluginLogger.Info($"[macOS probe] Snapshot requested (round {generation}); each live match saves one on its next step.");
+        PluginLogger.Info(
+            $"[macOS probe] Snapshot requested (round {generation}); each live match saves one on its next step, " +
+            "or within a few seconds if it is paused or over.");
+    }
+
+    /// <summary>
+    /// Runs once a second on a timer. Picks up the trigger file even when no match is
+    /// stepping, and two seconds into a manual round snapshots the matches that have not
+    /// stepped since (paused, or past the final whistle) from this thread. A match is only
+    /// read if its object still points at the same home team, so a freed match is skipped.
+    /// </summary>
+    private void SnapshotIdleMatches()
+    {
+        try
+        {
+            CheckTrigger();
+            var generation = Volatile.Read(ref _manualGeneration);
+            if (generation == 0) return;
+            var now = Environment.TickCount64;
+            if (now - Interlocked.Read(ref _generationStartedAt) < 2000) return;
+            foreach (var (match, state) in _matches)
+            {
+                if (state.ManualGeneration == generation || Interlocked.Read(ref state.Calls) < SnapshotAfterCalls) continue;
+                if (now - Volatile.Read(ref state.LastCallAt) > IdleMatchMaxAgeMs) continue;
+                lock (state)
+                {
+                    if (state.ManualGeneration == generation) continue;
+                    state.ManualGeneration = generation;
+                    if (state.HomeTeam == 0 || ReadPointer(match + HomeTeam) != state.HomeTeam) continue;
+                    if (Interlocked.Increment(ref _manualSnapshots) > MaxManualSnapshots) return;
+                    DeepSnapshot(match, ReadInt32(match + Tick) ?? -1, state.LastTargetTick, "manual");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            if (Interlocked.Increment(ref _failuresLogged) <= 5)
+                PluginLogger.Warning($"[macOS probe] Idle snapshot failed: {ex.Message}");
+        }
     }
 
     private static string Describe(nint match, MatchState state, int? tick)
@@ -596,6 +643,8 @@ internal sealed class MacMatchProbe
         public int LastSnapshotTick = int.MinValue / 2;
         public DateTime LastLog = DateTime.MinValue;
         public int ManualGeneration;
+        public long LastCallAt;
+        public nint HomeTeam;
     }
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]

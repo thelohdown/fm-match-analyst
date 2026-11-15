@@ -257,7 +257,7 @@ cmd_snap() {
   mkdir -p "$dir"
   before="$(grep -c "Graph snapshot (manual)" "$log" 2>/dev/null || true)"
   touch "$dir/snapshot-now"
-  echo "Snapshot requested; it is taken on the match's next step."
+  echo "Snapshot requested; it is taken within a few seconds, paused or not."
   for i in $(seq 1 20); do
     sleep 1
     now="$(grep -c "Graph snapshot (manual)" "$log" 2>/dev/null || true)"
@@ -270,8 +270,7 @@ cmd_snap() {
       return 0
     fi
   done
-  echo "No snapshot yet: the match is probably paused. Resume it for a second and it will be taken;"
-  echo "then run ./mac/dev.sh logs to copy it."
+  echo "No snapshot after 20 seconds. Is a match open in FM27 with the plugin loaded? Check ./mac/dev.sh logs."
 }
 
 cmd_health() {
