@@ -6,7 +6,11 @@
 //
 // Design rules (see the build spec): the user's team is always blue and the
 // opponent orange, on every chart and key; status is never colour alone (a glyph
-// and a word, and no red/green pair anywhere); nothing smaller than 12 px.
+// and a word, and no red/green pair anywhere); nothing smaller than 12 px. The page
+// is static and fully local: no scripts, no requests (Inter if installed, else the
+// system font), and a Content-Security-Policy that holds it to that.
+
+import type { ActionCheck, TrendRow } from "./metrics"
 
 export const YOU = "#2a78d6"
 const YOU_DARK = "#256abf"
@@ -73,6 +77,17 @@ export type PostMatchPage = {
   players: PlayerLine[]
   /** Condition at or below this is flagged. */
   conditionFlag: number
+}
+
+export type TakeawayTag = "keep" | "fix" | "try"
+export type MeaningPage = {
+  header: PageHeader
+  headline: string
+  takeaways: Array<{ tag: TakeawayTag; title: string; happened: string; why: string; action: string; trend?: TrendRow }>
+  carry: Array<{ area: "tactic" | "training" | "selection" | "recruitment"; action: string; check?: string }>
+  trend: { rows: TrendRow[]; matches: number; against?: string; note?: string }
+  outlook: Array<{ name: string; position?: string; outlook: "rest" | "start" | "watch" | "form"; why: string; rating?: number; condition?: number }>
+  lastTime?: { from: string; checks: ActionCheck[] }
 }
 
 export type HalfTimePage = {
@@ -554,6 +569,7 @@ header .right p{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .plan .ev{font-size:12px;line-height:16px;color:${SEC};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .plan .bullet{display:block;width:8px;height:8px;border-radius:50%;background:${THEM};margin:5px 4px 0}
 .plan.wrap .ev,.plan li.wrap .ev{white-space:normal}
+.clamp2{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .legend{padding-top:2px;min-width:0}
 .swatchline{display:inline-block;width:16px;height:3px;border-radius:2px;background:rgba(82,81,78,.5);vertical-align:middle}
 .swatchdot{display:inline-block;width:10px;height:10px;border-radius:50%;vertical-align:middle}
@@ -567,7 +583,7 @@ header .right p{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .num-badge{width:26px;height:26px;border-radius:50%;background:${INK};color:#fff;font-size:14px;line-height:26px;font-weight:700;text-align:center}
 .ev13{font-size:13px;line-height:18px;color:${SEC};display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .opt{font-size:13px;line-height:18px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
-.mid3{height:244px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px;margin-top:14px;flex-shrink:0}
+.mid3{height:262px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px;margin-top:14px;flex-shrink:0}
 .mid3>section{min-width:0;overflow:hidden}
 .thead3{display:grid;grid-template-columns:minmax(0,1fr) 64px 64px;height:18px;align-items:center;font-size:12px;font-weight:600;border-bottom:1px solid ${AXIS}}
 .thead3 span{text-align:right}
@@ -582,6 +598,39 @@ header .right p{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .people td{padding:0 12px 0 0;height:25px;border-top:1px solid ${HAIR};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:330px}
 .people td.r{padding:0 0 0 12px;text-align:right}
 .mark{display:inline-flex;align-items:center;gap:6px;font-weight:600}
+@media screen{.page+.page{margin-top:24px}}
+.headline{margin-top:14px;font-size:20px;line-height:26px;font-weight:700;flex-shrink:0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.takes{height:282px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px;margin-top:14px;flex-shrink:0}
+.take{background:${PANEL};border-radius:8px;padding:12px 14px;display:flex;flex-direction:column;min-width:0;overflow:hidden}
+.take>*{flex-shrink:0}
+.ttop{display:flex;align-items:center;gap:6px;height:22px;margin-bottom:6px}
+.tword{font-size:12px;line-height:16px;font-weight:700;letter-spacing:.04em;text-transform:uppercase}
+.take h3{font-size:15px;line-height:20px;font-weight:700;margin-left:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.klabel{font-size:12px;line-height:16px;font-weight:600;color:${MUTED};margin-top:4px}
+.ktext{font-size:13px;line-height:18px;color:${SEC};display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.next{margin-top:8px;background:#fff;border-radius:6px;padding:4px 10px 6px;border-left:3px solid ${INK}}
+.ntext{font-size:13px;line-height:18px;font-weight:600;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.kt{margin-top:auto;padding-top:6px;font-size:12px;line-height:16px;color:${SEC};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tw{font-weight:600;white-space:nowrap}
+.row4{flex:1;min-height:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px;margin-top:16px}
+.row4>section{min-width:0;overflow:hidden}
+.carry{list-style:none;margin:0;padding:0}
+.carry li,.lastl li{display:flex;gap:10px;align-items:flex-start;padding:6px 0;border-top:1px solid ${HAIR}}
+.lastl{list-style:none;margin:0;padding:0}
+.box{flex-shrink:0;width:13px;height:13px;border:1.5px solid ${SEC};border-radius:3px;margin-top:3px}
+.ctext{font-size:13px;line-height:18px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.cnote{font-size:12px;line-height:16px;color:${MUTED};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.area{flex-shrink:0;font-size:12px;line-height:18px;font-weight:600;color:${SEC}}
+.oname{font-size:13px;line-height:18px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.onum{text-align:right;flex-shrink:0}
+.ttable4{width:100%;border-collapse:collapse;table-layout:fixed;font-size:12px;line-height:22px;font-variant-numeric:tabular-nums}
+.ttable4 thead th{font-weight:600;color:${INK};line-height:18px;border-bottom:1px solid ${AXIS};text-align:right;white-space:nowrap}
+.ttable4 th{padding:0;text-align:left;font-weight:400;color:${SEC};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ttable4 th:nth-child(2),.ttable4 td:nth-child(2){width:62px}
+.ttable4 th:nth-child(3),.ttable4 td:nth-child(3){width:50px}
+.ttable4 th:nth-child(4),.ttable4 td:nth-child(4){width:64px}
+.ttable4 td{padding:0;text-align:right;white-space:nowrap}
+.last{margin-top:12px}
 `
 
 function htmlDocument(title: string, body: string): string {
@@ -590,8 +639,8 @@ function htmlDocument(title: string, body: string): string {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=1104">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'">
 <title>${esc(title)}</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;display=swap">
 <style>${STYLE}</style>
 </head>
 <body>
@@ -601,7 +650,94 @@ ${body}
 `
 }
 
-export function postMatchHtml(page: PostMatchPage): string {
+// ---------------------------------------------------------------------------
+// Post-match page 1: what this means for us
+
+const ARROW = `<path d="M4.5 8 H11 M8.2 5.2 L11 8 L8.2 10.8" fill="none" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>`
+const TAGS: Record<TakeawayTag, { color: string; glyph: string; word: string }> = {
+  keep: { color: YOU_DARK, glyph: CHECK, word: "Keep" },
+  fix: { color: THEM, glyph: BANG, word: "Fix" },
+  try: { color: MUTED, glyph: ARROW, word: "Try" },
+}
+const tagIcon = (tag: TakeawayTag, size = 16) =>
+  `<svg width="${size}" height="${size}" viewBox="0 0 16 16" aria-hidden="true" class="icon"><circle cx="8" cy="8" r="8" fill="${TAGS[tag].color}"></circle>${TAGS[tag].glyph}</svg>`
+const AREA_WORD = { tactic: "Tactic", training: "Training", selection: "Selection", recruitment: "Recruitment" } as const
+const OUTLOOK_WORD = { rest: "Rest", start: "Start", watch: "Watch", form: "Form dip" } as const
+const VERDICT_MARK: Record<NonNullable<TrendRow["verdict"]>, { glyph: string; word: string; color: string }> = {
+  better: { glyph: "▲", word: "Better", color: YOU_DARK },
+  worse: { glyph: "▼", word: "Worse", color: THEM },
+  same: { glyph: "–", word: "Same", color: MUTED },
+}
+const CHECK_MARK: Record<ActionCheck["status"], { word: string; color: string }> = {
+  done: { word: "Done", color: YOU_DARK },
+  "not yet": { word: "Not yet", color: MUTED },
+  worse: { word: "Worse", color: THEM },
+  "no measure": { word: "–", color: MUTED },
+}
+
+function trendWord(row: TrendRow): string {
+  if (!row.verdict) return ""
+  const mark = VERDICT_MARK[row.verdict]
+  return `<span class="tw" style="color: ${mark.color}">${mark.glyph} ${mark.word}</span>`
+}
+
+function takeawayCard(row: MeaningPage["takeaways"][number]): string {
+  const trend = row.trend
+    ? `<p class="kt">${esc(row.trend.label)}: <b>${esc(row.trend.now)}</b>${row.trend.average ? ` · usual ${esc(row.trend.average)}` : ""} ${trendWord(row.trend)}</p>`
+    : ""
+  return `<article class="take">
+<div class="ttop">${tagIcon(row.tag)}<span class="tword" style="color: ${TAGS[row.tag].color}">${TAGS[row.tag].word}</span><h3>${esc(row.title)}</h3></div>
+<p class="klabel">What happened</p><p class="ktext">${esc(row.happened)}</p>
+<p class="klabel">Why</p><p class="ktext">${esc(row.why)}</p>
+<div class="next"><p class="klabel">Next match</p><p class="ntext">${esc(row.action)}</p></div>
+${trend}
+</article>`
+}
+
+function meaningHtml(page: MeaningPage): string {
+  const carry = page.carry
+    .map(
+      (row) =>
+        `<li><span class="box" aria-hidden="true"></span><div class="grow"><p class="ctext">${esc(row.action)}</p>${row.check ? `<p class="cnote">Check: ${esc(row.check)}</p>` : ""}</div><span class="area">${AREA_WORD[row.area]}</span></li>`
+    )
+    .join("")
+  const trendHead = `<thead><tr><th></th><th class="r">This match</th><th class="r">${page.trend.matches > 0 ? `Last ${page.trend.matches === 1 ? "match" : page.trend.matches}` : ""}</th><th></th></tr></thead>`
+  const trendRows = page.trend.rows
+    .map(
+      (row) =>
+        `<tr><th>${esc(row.label)}</th><td><b>${esc(row.now)}</b></td><td>${row.average ? esc(row.average) : "–"}</td><td class="tv">${trendWord(row)}</td></tr>`
+    )
+    .join("")
+  const last = page.lastTime
+    ? `<div class="last">${sectionHead(`Last time we said · ${esc(page.lastTime.from)}`)}<ul class="lastl">${page.lastTime.checks
+        .slice(0, 3)
+        .map(
+          (check) =>
+            `<li><div class="grow"><p class="ctext">${esc(check.action)}</p><p class="cnote">${esc(check.result)}</p></div><span class="area" style="color: ${CHECK_MARK[check.status].color}">${CHECK_MARK[check.status].word}</span></li>`
+        )
+        .join("")}</ul></div>`
+    : ""
+  const outlook = page.outlook
+    .map(
+      (row) =>
+        `<li><div class="grow"><p class="oname"><b>${esc(row.name)}</b>${row.position ? ` <span class="muted">${esc(row.position)}</span>` : ""}</p><p class="cnote">${esc(row.why)}</p></div><div class="onum"><span class="area">${OUTLOOK_WORD[row.outlook]}</span><p class="cnote">${row.rating != null ? `${row.rating.toFixed(1)}` : ""}${row.condition != null ? ` · ${row.condition}%` : ""}</p></div></li>`
+    )
+    .join("")
+  return `<main class="page">
+${header(page.header)}
+<p class="headline">${esc(page.headline)}</p>
+<section aria-label="Three takeaways" class="takes">${page.takeaways.map(takeawayCard).join("")}</section>
+<div class="row4">
+<section aria-label="Carry forward">${sectionHead("Carry forward", note("Saved and checked next match"))}<ul class="carry">${carry}</ul></section>
+<section aria-label="New or a trend">${sectionHead("New or a trend?", page.trend.matches > 1 ? note("Average of your last matches") : "")}<table class="ttable4">${trendHead}<tbody>${trendRows}</tbody></table>${page.trend.note ? `<p class="setp">${esc(page.trend.note)}</p>` : ""}${last}</section>
+<section aria-label="Player outlook">${sectionHead("Player outlook", note("Rating · condition at the whistle"))}${outlook ? `<ul class="carry">${outlook}</ul>` : `<p class="setp">No player notes for this match.</p>`}</section>
+</div>
+</main>`
+}
+
+const capitalise = (text: string) => (text ? text[0].toUpperCase() + text.slice(1) : text)
+
+export function postMatchHtml(page: PostMatchPage, meaning?: MeaningPage): string {
   const verdict = page.verdict
     .map(
       (item, index) =>
@@ -609,8 +745,8 @@ export function postMatchHtml(page: PostMatchPage): string {
     )
     .join("")
   const legend = `<div class="legendrow"><span>${keyLine(YOU)}${esc(page.header.you.name)}</span><span>${keyLine(THEM)}${esc(page.header.them.name)}</span><span>${keyDot(MUTED)}Goal</span></div>`
-  const body = `<main class="page">
-${header(page.header)}
+  const body = `${meaning ? meaningHtml(meaning) + "\n" : ""}<main class="page">
+${header(meaning ? { ...page.header, kicker: "Post-match \u00b7 the evidence" } : page.header)}
 <section aria-label="The verdict" class="verdict">${verdict}</section>
 <div class="row2">
 <section aria-label="Match flow" style="min-width: 0">${sectionHead("Match flow", legend)}${flowChart(page.flow)}</section>
@@ -634,9 +770,9 @@ ${turnBlock(page)}
 <section aria-label="What they are doing">${sectionHead(`What ${esc(page.header.them.name)} are doing`)}<ul class="plan">${page.theirPlan
     .map(
       (row) =>
-        `<li class="wrap" style="padding: 5px 0"><div class="iconcell">${row.status ? statusIcon(row.status) : `<span class="bullet"></span>`}</div><div class="grow"><div class="spread"><span class="label">${esc(
+        `<li class="wrap" style="padding: 4px 0"><div class="iconcell">${row.status ? statusIcon(row.status) : `<span class="bullet"></span>`}</div><div class="grow"><div class="spread"><span class="label">${esc(
           row.label
-        )}</span>${row.status ? `<span class="word">${STATUS[row.status].word}</span>` : ""}</div><p class="ev">${esc(row.evidence)}</p></div></li>`
+        )}</span>${row.status ? `<span class="word">${STATUS[row.status].word}</span>` : ""}</div><p class="ev clamp2">${esc(row.evidence)}</p></div></li>`
     )
     .join("")}</ul></section>
 <section aria-label="Our plan so far">${sectionHead("Our plan so far")}${planRows(page.ourPlan)}<p class="setp">${page.setPieces}</p></section>

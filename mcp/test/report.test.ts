@@ -36,6 +36,20 @@ export const POST_MATCH: ReportInput = {
     { minute: 46, label: "46' LAFC change 3" },
     { minute: 61, label: "61' Chicago go positive" },
   ],
+  headline: "Won 1-0, but the chances were even (1.39 xG v 1.19): a good result, not yet a fixed team.",
+  takeaways: [
+    { tag: "keep", title: "The counter works", happened: "Our goal came 15 s after Gutman won it in our own third.", why: "LAFC left space behind their full-backs.", action: "Keep Counter on, with Lewandowski as the outlet.", metric: "fast_breaks_for" },
+    { tag: "fix", title: "Their counters", happened: "LAFC had 13 fast breaks.", why: "We won it back within 5 s after only 10% of losses.", action: "Counter-press after losing it.", metric: "fast_breaks_against" },
+    { tag: "try", title: "Press higher", happened: "Our PPDA was 26.7 despite the instruction.", why: "The line of engagement stayed mid.", action: "Try Line of Engagement high." },
+  ],
+  carry_forward: [
+    { area: "tactic", action: "Counter-press after losing the ball", check_metric: "fast_breaks_against", check_target: "down" },
+    { area: "selection", action: "Rest Bamba" },
+  ],
+  outlook: [
+    { name: "Bamba", outlook: "rest", why: "Tired at the whistle" },
+    { name: "Robert Lewandowski", outlook: "start", why: "The goal" },
+  ],
 }
 
 export const HALF_TIME: ReportInput = {
@@ -96,7 +110,7 @@ describe.skipIf(!existsSync(archive))("printable reports", () => {
     expect(missingInputs("post_match", POST_MATCH)).toEqual([])
     expect(missingInputs("half_time", HALF_TIME)).toEqual([])
     expect(missingInputs("post_match", { our_plan: POST_MATCH.our_plan })).toEqual(
-      expect.arrayContaining([expect.stringContaining("verdict"), expect.stringContaining("their_plan")])
+      expect.arrayContaining([expect.stringContaining("headline"), expect.stringContaining("takeaways"), expect.stringContaining("carry_forward"), expect.stringContaining("their_plan")])
     )
     expect(lengthProblems("post_match", { their_plan: [{ label: "Pressing", status: "hurt", evidence: "x".repeat(60) }] })).toHaveLength(1)
     expect(lengthProblems("half_time", { their_plan: [{ label: "Pressing", evidence: "x".repeat(60) }] })).toEqual([])
@@ -128,6 +142,40 @@ describe.skipIf(!existsSync(archive))("printable reports", () => {
     expect(html).not.toMatch(/NaN|undefined|null%/)
   })
 
+  it("puts what it means for us on page 1, the evidence on page 2", () => {
+    const html = decode(buildPostMatch(model, source, POST_MATCH).html)
+    expect(html.split('<main class="page">')).toHaveLength(3)
+    expect(html.indexOf("Post-match · what it means")).toBeLessThan(html.indexOf("Post-match · the evidence"))
+    expect(html).toContain("a good result, not yet a fixed team")
+    for (const word of ["Keep", "Fix", "Try", "Next match", "Carry forward", "Player outlook"]) expect(html).toContain(word)
+    // First match on record: no trend yet, and it says so.
+    expect(html).toContain("First match on record for Chicago")
+    // Fast breaks for the takeaway's own figure; ratings at the whistle for the outlook.
+    expect(html).toMatch(/Fast breaks: <b>16<\/b>/)
+    expect(html).toMatch(/<b>Bamba<\/b>/)
+    expect(html).toMatch(/<b>Lewandowski<\/b>/)
+    expect(html).toContain("Check: Fast breaks against ▼")
+    expect(html).not.toMatch(/NaN|undefined/)
+  })
+
+  it("sets each figure against earlier matches and checks last time's actions", () => {
+    const previous = [1, 2, 3].map((i) => ({ file: `f${i}`, modified: "m", matchId: `m${i}`, date: `2025-12-0${i}`, team: "Chicago", opponent: "X", metrics: { fast_breaks_for: 8, fast_breaks_against: 6, xg_for: 1.4, xg_against: 1.2, box_entries_against: 32, won_back_5s_pct: 10, lost_in_own_third: 2 } }))
+    const lastTime = {
+      savedAt: "2025-12-20T00:00:00Z",
+      matchId: "older",
+      date: "2025-12-20",
+      team: "Chicago",
+      opponent: "Seattle",
+      items: [{ area: "tactic" as const, action: "Stop their counters", check: { metric: "fast_breaks_against" as const, target: "down" as const }, baseline: 9 }],
+    }
+    const html = decode(buildPostMatch(model, source, POST_MATCH, { previous, lastTime }).html)
+    // 16 fast breaks against an average of 8: better; 13 against 6: worse.
+    expect(html).toMatch(/Fast breaks: <b>16<\/b> · usual 8 <span class="tw"[^>]*>▲ Better/)
+    expect(html).toMatch(/Fast breaks against: <b>13<\/b> · usual 6 <span class="tw"[^>]*>▼ Worse/)
+    expect(html).toContain("Last time we said · 2025-12-20 v Seattle")
+    expect(html).toContain("Fast breaks against: 9 then, 13 now")
+  })
+
   it("builds the half-time sheet from the first half only", () => {
     const built = buildHalfTime(model, source, HALF_TIME)
     const { title } = built
@@ -154,6 +202,21 @@ describe.skipIf(!existsSync(archive))("printable reports", () => {
     expect(notes[0]).toContain("Could not tell which team you manage")
     expect(html).toContain("Tactics were not captured for this match")
     expect(html).not.toMatch(/NaN|undefined/)
+  })
+
+  it("keeps a doctored archive's date and names out of the file path", async () => {
+    process.env.FM_ANALYST_DATA_DIR = mkdtempSync(join(tmpdir(), "fm-report-"))
+    const doctored = new MatchModel("doctored")
+    doctored.setMetadata({ matchDate: "../../../e", home: { name: "../../x" }, away: { name: "/" }, players: [] } as never)
+    const file = await saveReport(doctored, "half_time", "<p>x</p>")
+    expect(file.startsWith(join(process.env.FM_ANALYST_DATA_DIR, "reports"))).toBe(true)
+    expect(file).toMatch(/reports[\\/]\d{4}-\d{2}-\d{2}-x-v-away-half-time\.html$/)
+  })
+
+  it("is a static page that makes no requests", () => {
+    const { html } = buildPostMatch(model, source, POST_MATCH)
+    expect(html).toContain("Content-Security-Policy")
+    expect(html).not.toMatch(/<script|<link|https?:\/\/(?!www\.w3\.org)/)
   })
 
   it("saves one file per match and kind in the data folder", async () => {

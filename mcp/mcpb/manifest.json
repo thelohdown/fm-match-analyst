@@ -66,6 +66,10 @@
       "description": "Who to take off and who to bring on: condition forecast, cards, form, matchups and bench options."
     },
     {
+      "name": "get_last_actions",
+      "description": "Did last match's actions work? The carry-forward actions from your last post-match report, checked against this match."
+    },
+    {
       "name": "get_opponent_read",
       "description": "How the opponent is actually playing: shape as played, block, pressing, build-up, where they attack, and matchups."
     },
@@ -115,7 +119,7 @@
     },
     {
       "name": "build_report",
-      "description": "A printable post-match one-pager or half-time sheet, saved as an HTML page: every number from the match, with your analyst's verdict."
+      "description": "A printable post-match report (what it means for us, then the evidence) or half-time sheet, saved as an HTML page."
     },
     {
       "name": "note_feedback",

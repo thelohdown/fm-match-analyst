@@ -6,9 +6,10 @@ import { appendFile, mkdir, readFile } from "node:fs/promises"
 import { homedir } from "node:os"
 import { join } from "node:path"
 
+import { setting } from "./env"
+
 export function dataFolder(): string {
-  const configured = process.env.FM_ANALYST_DATA_DIR?.trim()
-  return configured ? configured : join(homedir(), "Documents", "FM Match Analyst")
+  return setting("FM_ANALYST_DATA_DIR") ?? join(homedir(), "Documents", "FM Match Analyst")
 }
 
 export type FeedbackRecord = {

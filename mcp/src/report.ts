@@ -6,12 +6,13 @@
 // in the data folder, ready to open in a browser and print or save as PDF.
 
 import { mkdir, writeFile } from "node:fs/promises"
-import { join } from "node:path"
+import { join, resolve, sep } from "node:path"
 
 import type { MatchMomentumPoint, TacticalEventPoint, XgShotPoint } from "@/types/match"
 
 import { minuteLabel } from "./clock"
 import { dataFolder } from "./feedback"
+import { type CachedMatch, type CarryArea, checkActions, type MatchMetrics, type MetricKey, METRICS, type SavedActions, teamMetrics, trendRows } from "./metrics"
 import { type MatchModel, other, type Side, type WindowSelection } from "./model"
 import { PhaseContext } from "./phases"
 import { windowPhases, type WindowPhases } from "./phaseViews"
@@ -24,6 +25,7 @@ import {
   type PassLink,
   type PitchPlayer,
   type PlanRow,
+  type MeaningPage,
   type PlayerLine,
   postMatchHtml,
   type PostMatchPage,
@@ -45,6 +47,13 @@ export const LIMITS = {
   watchEvidence: 95,
   personWhy: 44,
   personBench: 48,
+  headline: 110,
+  takeawayTitle: 32,
+  takeawayHappened: 88,
+  takeawayWhy: 88,
+  takeawayAction: 120,
+  carryAction: 64,
+  outlookWhy: 48,
 } as const
 
 export type ReportKind = "post_match" | "half_time"
@@ -56,7 +65,15 @@ export type ReportInput = {
   their_plan?: Array<{ label: string; status?: "hurt" | "contained"; evidence: string }>
   flow_events?: Array<{ minute: number; label: string }>
   players?: Array<{ name: string; status: "watch" | "keep"; why: string; bench?: string }>
+  /** post_match page 1: what this means for us. */
+  headline?: string
+  takeaways?: Array<{ tag: "keep" | "fix" | "try"; title: string; happened: string; why: string; action: string; metric?: MetricKey }>
+  carry_forward?: Array<{ area: CarryArea; action: string; check_metric?: MetricKey; check_target?: "up" | "down" }>
+  outlook?: Array<{ name: string; outlook: "rest" | "start" | "watch" | "form"; why: string }>
 }
+
+/** What the post-match report adds from other matches: the trend and the last actions saved. */
+export type PostMatchExtras = { previous?: CachedMatch[]; lastTime?: SavedActions }
 
 /** Condition at or below this is flagged on the post-match player table. */
 const CONDITION_FLAG = 70
@@ -66,7 +83,9 @@ type Built = { html: string; title: string; notes: string[] }
 export function missingInputs(kind: ReportKind, input: ReportInput): string[] {
   const missing: string[] = []
   if (kind === "post_match") {
-    if (input.verdict?.length !== 3) missing.push("verdict (exactly 3 lines)")
+    if (!input.headline) missing.push("headline (one line: the result against the performance, and what it means)")
+    if (input.takeaways?.length !== 3) missing.push("takeaways (exactly 3, each tagged keep, fix or try, with what happened, why, and the action for the next match)")
+    if (!input.carry_forward?.length) missing.push("carry_forward (1-5 actions for the next match, each with its area)")
     if (!input.their_plan?.length) missing.push("their_plan (1-4 rows, each with status hurt or contained)")
     else if (input.their_plan.some((row) => !row.status)) missing.push("a status (hurt or contained) on every their_plan row")
   } else {
@@ -84,6 +103,15 @@ export function lengthProblems(kind: ReportKind, input: ReportInput): string[] {
   const check = (what: string, value: string | undefined, limit: number) => {
     if (value && value.length > limit) problems.push(`${what} is ${value.length} characters; it fits ${limit}`)
   }
+  check("headline", input.headline, LIMITS.headline)
+  input.takeaways?.forEach((row, index) => {
+    check(`takeaways[${index}].title`, row.title, LIMITS.takeawayTitle)
+    check(`takeaways[${index}].happened`, row.happened, LIMITS.takeawayHappened)
+    check(`takeaways[${index}].why`, row.why, LIMITS.takeawayWhy)
+    check(`takeaways[${index}].action`, row.action, LIMITS.takeawayAction)
+  })
+  input.carry_forward?.forEach((row, index) => check(`carry_forward[${index}].action`, row.action, LIMITS.carryAction))
+  input.outlook?.forEach((row, index) => check(`outlook[${index}].why`, row.why, LIMITS.outlookWhy))
   input.their_plan?.forEach((row, index) => {
     const labelLimit = kind === "post_match" ? LIMITS.planLabel : LIMITS.watchLabel
     const evidenceLimit = kind === "post_match" ? LIMITS.planEvidence : LIMITS.watchEvidence
@@ -355,7 +383,7 @@ function playerLines(model: MatchModel, you: Side): PlayerLine[] {
   return [...starters, ...subs].slice(0, 13).map((row) => row.line)
 }
 
-export function buildPostMatch(model: MatchModel, source: views.SourceInfo, input: ReportInput): Built {
+export function buildPostMatch(model: MatchModel, source: views.SourceInfo, input: ReportInput, extras: PostMatchExtras = {}): Built & { metrics: MatchMetrics; side: Side } {
   const selection = model.select({})
   if (!selection) throw new Error("No match data yet.")
   const { you, them, notes } = sidesOf(model)
@@ -371,7 +399,7 @@ export function buildPostMatch(model: MatchModel, source: views.SourceInfo, inpu
   const tactics = tacticLines(model)
   const page: PostMatchPage = {
     header: header(model, { you, them }, { kicker: "Post-match report", status: finished ? "Full time" : `data to ${state.minute}`, goals, xg }),
-    verdict: (input.verdict ?? []).slice(0, 3),
+    verdict: (input.verdict?.length ? input.verdict : (input.takeaways ?? []).map((row) => ({ title: row.title, detail: row.happened }))).slice(0, 3),
     flow: {
       maxMinute,
       you: shotPoints(model, you),
@@ -389,8 +417,65 @@ export function buildPostMatch(model: MatchModel, source: views.SourceInfo, inpu
     players: playerLines(model, you),
     conditionFlag: CONDITION_FLAG,
   }
+  const metrics = teamMetrics(model, you, context)
+  const meaning = input.takeaways?.length ? meaningPage(model, input, you, metrics, extras, page.header) : undefined
   const title = `${page.header.you.name} ${page.header.you.goals}-${page.header.them.goals} ${page.header.them.name}`
-  return { html: postMatchHtml(page), title, notes }
+  return { html: postMatchHtml(page, meaning), title, notes, metrics, side: you }
+}
+
+/** Figures shown in the trend strip when the takeaways do not name enough of their own. */
+const DEFAULT_TREND: MetricKey[] = ["xg_for", "xg_against", "box_entries_against", "fast_breaks_against", "won_back_5s_pct", "lost_in_own_third"]
+
+function meaningPage(model: MatchModel, input: ReportInput, you: Side, metrics: MatchMetrics, extras: PostMatchExtras, head: PageHeader): MeaningPage {
+  const previous = extras.previous ?? []
+  const lastTime = extras.lastTime ? checkActions(extras.lastTime, metrics) : undefined
+  const named = (input.takeaways ?? []).map((row) => row.metric).filter((key): key is MetricKey => Boolean(key))
+  const keys = [...new Set([...named, ...DEFAULT_TREND])].slice(0, lastTime ? 5 : 6)
+  const rows = trendRows(keys, metrics, previous)
+  const byKey = new Map(rows.map((row) => [row.key, row]))
+  // Rating and condition at the whistle, for the players the outlook names.
+  const atWhistle = model.select({ toMinute: lastRegulationMinute(model) })?.end ?? model.endState()
+  const outlook = (input.outlook ?? []).slice(0, 5).map((row) => {
+    const found = findPlayer(model, you, row.name)
+    const state = found ? atWhistle?.players.get(found.playerId) : undefined
+    const roles = found ? views.playerRoles(model, found.playerId) : undefined
+    return {
+      name: found ? surname(views.playerName(model, found.playerId) ?? row.name) : row.name,
+      position: roles?.inPossession?.position ?? found?.position,
+      outlook: row.outlook,
+      why: row.why,
+      rating: state?.rating ? Math.round(state.rating * 10) / 10 : undefined,
+      condition: state?.condition ? Math.round(state.condition) : undefined,
+    }
+  })
+  return {
+    header: { ...head, kicker: "Post-match · what it means" },
+    headline: input.headline ?? "",
+    takeaways: (input.takeaways ?? []).slice(0, 3).map((row) => ({
+      tag: row.tag,
+      title: row.title,
+      happened: row.happened,
+      why: row.why,
+      action: row.action,
+      trend: row.metric ? byKey.get(row.metric) : undefined,
+    })),
+    carry: (input.carry_forward ?? []).slice(0, 5).map((row) => ({
+      area: row.area,
+      action: row.action,
+      check: row.check_metric ? `${METRICS[row.check_metric].label} ${(row.check_target ?? (METRICS[row.check_metric].better === "up" ? "up" : "down")) === "up" ? "\u25b2" : "\u25bc"}` : undefined,
+    })),
+    trend: {
+      rows,
+      matches: previous.length,
+      against: previous.length > 0 ? `last ${previous.length === 1 ? "match" : `${previous.length} matches`}` : undefined,
+      note:
+        previous.length === 0
+          ? `First match on record for ${views.teamName(model, you)}: from the next one, each figure is set against your last five.`
+          : undefined,
+    },
+    outlook,
+    lastTime,
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -506,9 +591,13 @@ export async function saveReport(model: MatchModel, kind: ReportKind, html: stri
   const folder = join(dataFolder(), "reports")
   await mkdir(folder, { recursive: true })
   const slug = (text: string) => text.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "")
-  const date = model.metadata?.matchDate?.slice(0, 10) ?? new Date().toISOString().slice(0, 10)
-  const name = `${date}-${slug(views.teamName(model, "home"))}-v-${slug(views.teamName(model, "away"))}-${kind === "post_match" ? "post-match" : "half-time"}.html`
+  // The date and team names come from the archive, which may not be ours: only a
+  // YYYY-MM-DD date and slugged names reach the file name, and the result must stay in the folder.
+  const recorded = /^\d{4}-\d{2}-\d{2}/.exec(model.metadata?.matchDate ?? "")?.[0]
+  const date = recorded ?? new Date().toISOString().slice(0, 10)
+  const name = `${date}-${slug(views.teamName(model, "home")) || "home"}-v-${slug(views.teamName(model, "away")) || "away"}-${kind === "post_match" ? "post-match" : "half-time"}.html`
   const file = join(folder, name)
+  if (!resolve(file).startsWith(resolve(folder) + sep)) throw new Error("Refusing to save a report outside the reports folder.")
   await writeFile(file, html, "utf8")
   return file
 }

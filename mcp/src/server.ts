@@ -13,6 +13,8 @@ import { defaultRoleWindow, roleReport } from "./roles"
 import { chanceStories } from "./sequences"
 import { subPlan } from "./subs"
 import { checkData, dataWarning } from "./checks"
+import { type CarryItem, checkActions, lastActions, METRIC_KEYS, METRICS, previousMatches, saveActions, teamMetrics } from "./metrics"
+import { setting } from "./env"
 import { saveFeedback } from "./feedback"
 import { clockLabel } from "./clock"
 import type { MatchModel } from "./model"
@@ -29,7 +31,7 @@ const LIVE_WAIT_MS = Number(process.env.FM_ANALYST_LIVE_WAIT_MS ?? 40_000)
 type Selection = { kind: "auto" } | { kind: "live" } | { kind: "archive"; entry: ArchiveEntry }
 
 export function createServer(options: { apiUrl?: string; startLive?: boolean } = {}) {
-  const live = new LiveSource(options.apiUrl || process.env.FMMATCHLENS_API || DEFAULT_API)
+  const live = new LiveSource(options.apiUrl || setting("FMMATCHLENS_API") || DEFAULT_API)
   if (options.startLive !== false) live.start()
   let selection: Selection = { kind: "auto" }
 
@@ -436,14 +438,41 @@ export function createServer(options: { apiUrl?: string; startLive?: boolean } =
     }
   )
 
+  server.registerTool(
+    "get_last_actions",
+    {
+      title: "Did last match's actions work?",
+      description:
+        "The carry-forward actions saved with the user's last post-match report, each checked against this match so far: the figure it should move, then and now, and done, not yet or worse. " +
+        "Use at half-time and full time, or when the user asks whether last week's changes worked.",
+      inputSchema: {},
+      annotations: readOnly,
+    },
+    async () => {
+      try {
+        const result = await current()
+        if ("error" in result) return failure(result.error)
+        const side = result.model.userSide() ?? "home"
+        const team = views.teamName(result.model, side)
+        const saved = await lastActions(team, result.model.matchId)
+        if (!saved) return reply({ team, note: "No carry-forward actions saved yet: they come with the next post-match report." })
+        return reply({ team, ...checkActions(saved, teamMetrics(result.model, side)), legend: "done: the figure moved the right way by enough to count; not yet: no real change; worse: it moved the wrong way. One match is a small sample." })
+      } catch (error) {
+        return failure(`Could not check the last actions: ${(error as Error).message}`)
+      }
+    }
+  )
+
   const line = (limit: number) => z.string().min(1).max(limit)
   server.registerTool(
     "build_report",
     {
       title: "Build a printable report",
       description:
-        "Only when the user asks for a report, one-pager, sheet or something to print or keep. Builds the printable post-match one-pager (kind post_match: score, verdict, match flow with xG and momentum, " +
-        "shot maps, the moments of the game for both teams, both teams' plans against what happened, average positions with passing links, and the player table) or the half-time sheet " +
+        "Only when the user asks for a report, one-pager, sheet or something to print or keep. Builds the printable post-match report (kind post_match, two pages: page 1, what this means for us: " +
+        "a headline, three takeaways tagged keep, fix or try with the action for next match, the actions to carry forward (saved and checked next match), each key figure against the last " +
+        "five saved matches, last match's actions checked, and the player outlook; page 2, the evidence: match flow with xG and momentum, shot maps, the moments of the game, both teams' " +
+        "plans against what happened, average positions with passing links, and the player table) or the half-time sheet " +
         "(kind half_time: three decisions for the second half, how the half turned, what the opponent is doing, the plan so far, players to watch with bench options), " +
         "and saves it as one HTML page to open in a browser and print or save as PDF. Every number and chart is worked out from the match; you write only the lines that need judgement, " +
         "so do the analysis first (get_briefing, get_phases, get_tactic for both teams, get_events, get_players). Building it again for the same match replaces the file.",
@@ -453,7 +482,7 @@ export function createServer(options: { apiUrl?: string; startLive?: boolean } =
           .array(z.object({ title: line(LIMITS.verdictTitle), detail: line(LIMITS.verdictDetail) }))
           .max(3)
           .optional()
-          .describe("post_match, exactly three: result against performance, what worked, what to fix. Each detail carries a number from the tools, written to the manager (we, our)."),
+          .describe("post_match, optional: three short lines for page 2's verdict strip. Left out, page 2 shows the takeaways' titles and what happened."),
         decisions: z
           .array(z.object({ title: line(LIMITS.decisionTitle), evidence: line(LIMITS.decisionEvidence), option: line(LIMITS.decisionOption) }))
           .max(3)
@@ -501,6 +530,46 @@ export function createServer(options: { apiUrl?: string; startLive?: boolean } =
           .max(5)
           .optional()
           .describe("half_time, up to five of the user's players: those to watch (booked, tiring, struggling, losing a matchup) and those to keep. Rating and condition at 45' are filled in from the match."),
+        headline: line(LIMITS.headline)
+          .optional()
+          .describe("post_match: one line to the manager on the result against the performance and what it means, with the deciding number (e.g. 'Won 1-0, but the chances were even (1.39 xG v 1.19): a good result, not yet a fixed team')."),
+        takeaways: z
+          .array(
+            z.object({
+              tag: z.enum(["keep", "fix", "try"]).describe("keep: working, carry on; fix: costing us; try: an opportunity worth testing."),
+              title: line(LIMITS.takeawayTitle),
+              happened: line(LIMITS.takeawayHappened).describe("What happened, with a number from the tools."),
+              why: line(LIMITS.takeawayWhy).describe("The mechanism behind it, from the tools (get_sequences, get_roles, get_changes, get_opponent_read, get_phases). Say 'after', not 'because', unless the data shows the cause."),
+              action: line(LIMITS.takeawayAction).describe("What to do next match, in FM's terms: an instruction, role, duty, opposition instruction, training focus or selection."),
+              metric: z.enum(METRIC_KEYS).optional().describe("The team figure that best tracks this takeaway; shown against the last five matches."),
+            })
+          )
+          .max(3)
+          .optional()
+          .describe("post_match, exactly three: what this match means for us. The report's page 1 is built around them; page 2 is the evidence."),
+        carry_forward: z
+          .array(
+            z.object({
+              area: z.enum(["tactic", "training", "selection", "recruitment"]),
+              action: line(LIMITS.carryAction),
+              check_metric: z.enum(METRIC_KEYS).optional().describe("The team figure that shows next match whether the action worked."),
+              check_target: z.enum(["up", "down"]).optional().describe("Which way that figure should move."),
+            })
+          )
+          .max(5)
+          .optional()
+          .describe("post_match, 1-5 actions to carry into the next match. They are saved, and get_last_actions checks them against the next match. Recruitment only for a problem that keeps coming back across matches."),
+        outlook: z
+          .array(
+            z.object({
+              name: z.string().min(1).max(60).describe("As get_players names him."),
+              outlook: z.enum(["rest", "start", "watch", "form"]).describe("rest: needs a break; start: has earned a start; watch: a concern; form: a dip across matches."),
+              why: line(LIMITS.outlookWhy),
+            })
+          )
+          .max(5)
+          .optional()
+          .describe("post_match, up to five players to rest, start or watch next match. Rating and condition at the whistle are filled in from the match."),
       },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
@@ -515,13 +584,36 @@ export function createServer(options: { apiUrl?: string; startLive?: boolean } =
         if ("error" in result) return failure(result.error)
         const warning = dataWarning(checkData(result.model))
         if (warning) return failure(`${warning} No report was built.`)
-        const built = args.kind === "post_match" ? buildPostMatch(result.model, result.source, args) : buildHalfTime(result.model, result.source, args)
-        const file = await saveReport(result.model, args.kind, built.html)
-        const notes = [...result.notes, ...built.notes]
+        const notes = [...result.notes]
+        let html: string
+        let title: string
+        if (args.kind === "post_match") {
+          const side = result.model.userSide() ?? "home"
+          const team = views.teamName(result.model, side)
+          const previous = await previousMatches(team, result.model.matchId).catch(() => [])
+          const lastTime = await lastActions(team, result.model.matchId)
+          const built = buildPostMatch(result.model, result.source, args, { previous, lastTime })
+          notes.push(...built.notes)
+          html = built.html
+          title = built.title
+          const items = (args.carry_forward ?? []).map((row) => ({
+            area: row.area,
+            action: row.action,
+            check: row.check_metric ? { metric: row.check_metric, target: row.check_target ?? (METRICS[row.check_metric].better === "up" ? "up" : "down") } : undefined,
+          })) as CarryItem[]
+          await saveActions(result.model, built.side, items, built.metrics)
+          if (items.length > 0) notes.push(`Saved ${items.length} carry-forward action${items.length === 1 ? "" : "s"}; get_last_actions checks them during the next match.`)
+        } else {
+          const built = buildHalfTime(result.model, result.source, args)
+          notes.push(...built.notes)
+          html = built.html
+          title = built.title
+        }
+        const file = await saveReport(result.model, args.kind, html)
         return reply({
           saved: file,
           report: label,
-          match: built.title,
+          match: title,
           open: "Open the file in a browser to see it; print it landscape on US Letter or save it as a PDF.",
           ...(notes.length > 0 ? { notes } : {}),
         })
@@ -602,7 +694,7 @@ export function createServer(options: { apiUrl?: string; startLive?: boolean } =
     "post_match_report",
     {
       title: "Post-match report",
-      description: "The printable one-pager after full time: verdict, match flow, shots, the moments of the game, both teams' plans, shape and players.",
+      description: "The printable report after full time: page 1, what this means for us (takeaways, actions to carry forward, trends, player outlook); page 2, the evidence.",
       argsSchema: { match: z.string().optional().describe("Archive to report on (file name or words); default: the current or newest match.") },
     },
     ({ match }) => ({
@@ -613,12 +705,14 @@ export function createServer(options: { apiUrl?: string; startLive?: boolean } =
             type: "text",
             text:
               (match ? `Load the match "${match}" with load_match. ` : "") +
-              "Build my post-match report. First do the analysis: get_briefing; get_phases for both teams over the whole match and each half; get_tactic for both teams; " +
-              "get_events for goals, shots and turnovers. Then call build_report with kind post_match and: a verdict of three lines to me (result against performance, " +
-              "what worked, what to fix), each with a number; four of my team instructions as seen or not seen with the deciding figure (for one added mid-match, " +
-              "compare get_phases after the change); four things the opponent did or changed (their tactic changes and opposition instructions, get_phases before and " +
-              "after each change, and the ball loss before each goal), each hurt or contained with what it did to us, saying \"after\", not \"because\"; and up to three " +
-              "changes to mark on the timeline. Then tell me where the file is in one line, and anything the report could not cover.",
+              "Build my post-match report. First do the analysis: get_briefing; get_phases for both teams over the whole match and each half; get_tactic for my team; " +
+              "get_sequences for the goals and big chances; get_roles; get_opponent_read; get_changes; get_last_actions; get_events for goals, shots and turnovers. " +
+              "Then call build_report with kind post_match. Page 1 is what this means for us: a headline (the result against the performance, and what it means); three " +
+              "takeaways, each tagged keep, fix or try, with what happened (a number), why (the mechanism the tools show), the action for next match in FM's terms, and " +
+              "the team figure that tracks it; one to five carry-forward actions with their area and the figure to check next match; and up to five players to rest, start " +
+              "or watch. Page 2 is the evidence: four of my team instructions as seen or not seen with the deciding figure; four things the opponent did or changed, each " +
+              "hurt or contained with what it did to us, saying \"after\", not \"because\"; and up to three changes to mark on the timeline. Then tell me where the file is " +
+              "in one line, and anything the report could not cover.",
           },
         },
       ],

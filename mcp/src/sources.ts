@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url"
 import type { RealtimeFrame, RealtimeMatchMetadata } from "@/api/realtimeMatch"
 import { parseArchiveFile } from "@/api/archiveParser"
 
+import { setting } from "./env"
 import { MatchModel } from "./model"
 
 export const DEFAULT_API = "http://127.0.0.1:16726"
@@ -148,7 +149,7 @@ export type ArchiveEntry = {
 
 /** Folders that may hold FMMatchLens archives, most specific first. */
 export function archiveFolders(): string[] {
-  const configured = (process.env.FMMATCHLENS_ARCHIVE_DIR ?? "")
+  const configured = (setting("FMMATCHLENS_ARCHIVE_DIR") ?? "")
     .split(process.platform === "win32" ? ";" : ":")
     .map((value) => value.trim())
     .filter(Boolean)
@@ -228,13 +229,19 @@ const archiveCache = new Map<string, { modified: string; model: MatchModel }>()
 export async function loadArchive(entry: ArchiveEntry): Promise<MatchModel> {
   const cached = archiveCache.get(entry.path)
   if (cached && cached.modified === entry.modified) return cached.model
+  const model = await readArchive(entry)
+  archiveCache.clear() // keep one archive in memory
+  archiveCache.set(entry.path, { modified: entry.modified, model })
+  return model
+}
+
+/** Reads an archive without touching the cache (for looking across past matches). */
+export async function readArchive(entry: ArchiveEntry): Promise<MatchModel> {
   const bytes = await readFile(entry.path)
   const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
   const parsed = await parseArchiveFile(buffer, entry.file)
   const model = new MatchModel(parsed.archive.matchId)
   model.setMetadata(parsed.metadata ?? parsed.metadataTimeline.at(-1) ?? null)
   model.ingest(parsed.frames)
-  archiveCache.clear() // keep one archive in memory
-  archiveCache.set(entry.path, { modified: entry.modified, model })
   return model
 }

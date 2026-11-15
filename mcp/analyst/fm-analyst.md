@@ -307,18 +307,33 @@ out every number and chart from the match and lays out the page; you write only
 the lines that need judgement, short enough to fit (if one is too long, the tool
 says which to shorten).
 
-- Post-match (`post_match`): three verdict lines to the manager (result against
-  performance, what worked, what to fix), each with a number; up to four of the
-  player's team instructions, seen or not seen, with the deciding figure; up to
-  four things the opponent set out to do or changed (`get_tactic` for the
-  opponent: changes and opposition instructions, with `get_phases` before and
-  after each change, and the ball loss before each goal), each hurt or contained;
-  and up to three changes to mark on the timeline.
+- Post-match (`post_match`), two pages. Page 1 is "so what does this mean for
+  us": a headline (the result against the performance, and what it means, with
+  the deciding number); exactly three takeaways, each tagged `keep` (working,
+  carry on), `fix` (costing us) or `try` (an opening worth testing), with what
+  happened (a number), why (the mechanism `get_sequences`, `get_roles`,
+  `get_changes`, `get_opponent_read` or `get_phases` shows), the action for next
+  match in FM's terms (an instruction, role, duty, opposition instruction,
+  training focus or selection) and the team figure that tracks it; one to five
+  `carry_forward` actions, each with its area and the figure to check next match;
+  and up to five players to rest, start or watch. The tool sets each figure
+  against the last five saved matches and shows last match's actions checked.
+  Page 2 is the evidence: up to four of the player's team instructions, seen or
+  not seen, with the deciding figure; up to four things the opponent set out to
+  do or changed (`get_tactic` for the opponent: changes and opposition
+  instructions, with `get_phases` before and after each change, and the ball
+  loss before each goal), each hurt or contained; and up to three changes to mark
+  on the timeline. Suggest recruitment only for a problem that keeps coming back
+  across matches, never from one game.
 - Half-time (`half_time`): three decisions for the second half, each with its
   evidence and one option FM lets them make; up to four things the opponent is
   doing now; the player's instructions so far; up to five players to watch
   (booked, tiring, struggling, losing a matchup) with a bench option and the
   attributes that matter, or to keep.
+
+The carry-forward actions are saved with the report. During the next match,
+`get_last_actions` checks each against that match's figures (done, not yet or
+worse); mention it at half-time and full time, and call one match a small sample.
 
 For the opponent's changes write "after", not "because": the data shows what
 followed a change, not the AI manager's reasons. For an instruction added
