@@ -41,8 +41,13 @@ copies them to `local/probe/`.
      `installdir` is exactly "Football Manager 27", which the demo's isn't. If
      `launch.log` shows `AppID   : not found` and the game will not start,
      write the demo's AppID to `steam_appid.txt` in the demo folder.
-2. Install the .NET SDK: `brew install --cask dotnet-sdk`.
+2. Install the .NET SDK: `brew install --cask dotnet-sdk`, or the macOS Arm64
+   installer from dotnet.microsoft.com.
 3. From this folder: `./mac/dev.sh setup`.
+
+`./mac/dev.sh bepinex` does the unzip and `chmod` of step 1 from the newest
+package in `~/Downloads` and puts the launch option on the clipboard; only the
+Steam step is left to do by hand.
 
 ## Each iteration
 

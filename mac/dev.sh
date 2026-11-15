@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 # Dev loop for the FMMatchLens macOS port. Run from Terminal on the Mac:
 #
+#   ./mac/dev.sh bepinex [zip]  put the FM27 macOS BepInEx package (newest one in
+#                          ~/Downloads by default) into FM27's folder, and copy the
+#                          Steam launch option to the clipboard
 #   ./mac/dev.sh setup     copy FM27's native game library into local/ for analysis,
 #                          and BepInEx's reference DLLs into the build once installed
-#   ./mac/dev.sh build     build the plugin (needs the .NET 10 SDK)
+#   ./mac/dev.sh build     build the plugin (needs the .NET SDK, 10 or newer)
 #   ./mac/dev.sh install   build, then copy the plugin into FM27's BepInEx folder
 #   ./mac/dev.sh logs      copy BepInEx's log into local/logs and show plugin lines
 #   ./mac/dev.sh health    ask the running plugin's local API whether it is up
@@ -214,16 +217,48 @@ cmd_logs() {
   grep -n -i "Chainloader\|FMMatchLens\|\[macOS\|GAME_MATCH\|game_plugin" "$log" | tail -60 || true
 }
 
+cmd_bepinex() {
+  need_game
+  local zip="${1:-}"
+  if [ -z "$zip" ]; then
+    zip="$(ls -t "$HOME"/Downloads/FM27-BepInEx-macOS-arm64-*.zip 2>/dev/null | head -1 || true)"
+  fi
+  if [ -z "$zip" ] || [ ! -f "$zip" ]; then
+    echo "The FM27 BepInEx package was not found in ~/Downloads."
+    echo "Download it from sortitoutsi, or pass its path:  ./mac/dev.sh bepinex /path/to/FM27-BepInEx-....zip"
+    exit 1
+  fi
+  local dir="$GAME/FM27-BepInEx"
+  if [ -d "$dir/BepInEx/core" ]; then
+    echo "BepInEx is already in $dir (left as it is)."
+  else
+    echo "unzipping $(basename "$zip") into $GAME"
+    unzip -q "$zip" -d "$GAME"
+  fi
+  if [ ! -f "$dir/run_fm27_bepinex.sh" ]; then
+    echo "Expected $dir/run_fm27_bepinex.sh after unzipping; is this the FM27 macOS BepInEx package?"
+    exit 1
+  fi
+  chmod +x "$dir/run_fm27_bepinex.sh"
+  local option="\"$dir/run_fm27_bepinex.sh\" %command%"
+  echo "Steam launch option for $(basename "$GAME"):"
+  echo "  $option"
+  if command -v pbcopy >/dev/null 2>&1 && printf '%s' "$option" | pbcopy; then
+    echo "It is on the clipboard: Steam > $(basename "$GAME") > Properties > General > Launch Options, then paste."
+  fi
+}
+
 cmd_health() {
   curl -sS --max-time 3 "$API" && echo || echo "No answer from $API (is FM27 running with the plugin loaded?)"
 }
 
 case "${1:-}" in
+  bepinex) cmd_bepinex "${2:-}" ;;
   setup) cmd_setup ;;
   build) cmd_build ;;
   install) cmd_install ;;
   logs) cmd_logs ;;
   health) cmd_health ;;
   where) need_game; echo "BepInEx: $BEPINEX" ;;
-  *) sed -n '2,13p' "$0"; exit 1 ;;
+  *) sed -n '2,17p' "$0"; exit 1 ;;
 esac
