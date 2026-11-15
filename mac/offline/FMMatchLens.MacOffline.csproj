@@ -1,7 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <!--
     Runs FMMatchLens's capture code against a macOS probe graph snapshot, with the snapshot's
-    memory mapped back at its original addresses in a Linux process. Linux x86-64 or arm64 only.
+    memory mapped back at its original addresses in a Linux process (Linux x86-64 or arm64 only).
+    Its archive modes (summary, frames as JSON, and a replay into the local API) also
+    run on macOS; ./mac/dev.sh serve builds and runs the replay.
     It uses the plugin as built by ./mac/dev.sh build (bin/Release/net6.0); pass
     -p:PluginTargetFramework=net8.0 if the plugin was built for net8.0 instead.
     Build: dotnet build mac/offline

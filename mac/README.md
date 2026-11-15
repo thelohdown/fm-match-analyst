@@ -19,7 +19,7 @@ On macOS the plugin now runs **FMMatchLens's normal capture** with a macOS offse
 | Player, club and competition names; managers; match date | Mapped; verified live (Chicago v LAFC: "Chicago", "LAFC", "Friendly", "test test", "Xavier Tamarit", 2025-12-30, every player's name). The capture logs a `macOS metadata check` line per match |
 | Human v AI manager | Mapped: Itanium "offset to top" of the manager's person is 0x548 for a human manager and 0x208 for an AI one (Windows RTTI: 0x440 / 0x100) |
 | Capture session (picking the animated match, archive, API, dashboard) | Working live: a whole match locked with no missing ticks and was archived; the dashboard shows names, ratings, stats, goals and substitutions |
-| Momentum chart, shot map, xG timeline | **Empty in the dashboard** on the first live run; under investigation (the event layout itself is verified) |
+| Momentum chart, shot map, xG timeline, heatmaps | Captured and archived. Replaying that match into the plugin's own API server (`./mac/dev.sh serve`) fills every panel in Chrome, both from kickoff and when the dashboard opens after full time. They were empty in the first live run, most likely because a dashboard opened late reads the whole match (about 1 GB of JSON) before drawing anything. The dashboard now draws each page as it arrives and logs history errors to the browser console instead of hiding them |
 | Attributes, position familiarity, condition, morale, ability, season stats | **Off on macOS**: the ActualPlayer part of the player record is laid out differently and not mapped |
 | Tactics, rating research (rating engine internals) | **Off on macOS**: not mapped |
 
@@ -34,10 +34,20 @@ momentum events to `BepInEx/plugins/FMMatchLens/data/mac-probe/`, automatically 
 points and whenever a match stops for 5 seconds, or on request (`./mac/dev.sh snap`).
 `./mac/dev.sh logs` copies them to `local/probe/`; `mac/read_graph.py` reads them.
 
+### Dashboard without the game (`./mac/dev.sh serve`)
+
+`./mac/dev.sh serve` replays a match archive through the plugin's own timeline and local
+API server, so the dashboard (`./mac/dev.sh dashboard`, in another Terminal tab) can be
+tried without FM27: `serve` loads the newest archive at once, as if the dashboard were
+opened at full time; `serve 30` replays it at 30x, as if it were open from kickoff;
+`serve FILE.fmlens 1` replays a given archive in real time. FM27 must not be running,
+since both use port 16726.
+
 ### Offline check (`mac/offline`)
 
 `mac/offline --archive MATCH.fmlens` summarises an archive the capture wrote (frames,
-momentum events, momentum points, pitch size). `./mac/dev.sh dump` copies the newest one
+momentum events, momentum points, pitch size), and `--archive-json MATCH.fmlens OUT`
+writes its frames as the API sends them. `./mac/dev.sh dump` copies the newest archive
 to `local/archives/`.
 
 `mac/offline` runs the plugin's own capture code against a graph snapshot on Linux: it
@@ -79,6 +89,7 @@ Steam step is left to do by hand.
 # launch FM27 from Steam, load a save, enter a match
 ./mac/dev.sh logs      # saves local/logs/latest.log and shows plugin lines
 ./mac/dev.sh health    # checks http://127.0.0.1:16726/api/health
+./mac/dev.sh dashboard # opens the dashboard (best opened before kickoff)
 ```
 
 ## Findings (FM27 demo, Steam, macOS)

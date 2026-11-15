@@ -22,10 +22,14 @@ internal static class Program
         {
             Console.Error.WriteLine("usage: FMMatchLens.MacOffline SNAPSHOT-graph.bin [truth.json]");
             Console.Error.WriteLine("       FMMatchLens.MacOffline --archive MATCH.fmlens");
+            Console.Error.WriteLine("       FMMatchLens.MacOffline --archive-json MATCH.fmlens OUT   (frames as the API sends them, OUT.NN.json)");
+            Console.Error.WriteLine("       FMMatchLens.MacOffline --serve MATCH.fmlens [framesPerSecond]   (replay into the local API)");
             return 2;
         }
 
         if (args[0] == "--archive" && args.Length > 1) return ArchiveSummary.Print(args[1]);
+        if (args[0] == "--archive-json" && args.Length > 2) return ArchiveSummary.WriteFramesJson(args[1], args[2]);
+        if (args[0] == "--serve" && args.Length > 1) return ArchiveServer.Serve(args[1], args.Length > 2 ? int.Parse(args[2]) : 0);
 
         // Must happen before Offsets is first touched.
         Environment.SetEnvironmentVariable("FMMATCHLENS_MAC_OFFSETS", "1");
@@ -62,6 +66,19 @@ internal static class Program
             checks.Pair("score", t.GetProperty("score"), record.HomeGoals, record.AwayGoals);
             checks.Pair("shots", t.GetProperty("team").GetProperty("shots"), record.HomeShots, record.AwayShots);
             checks.PairFloat("xG", t.GetProperty("team").GetProperty("xg"), record.HomeXg, record.AwayXg, 0.006);
+        }
+
+        // Momentum, as the capture session computes it: the calculator works on its own thread,
+        // so capture once, wait, and capture again to collect its output.
+        using (var calculator = new MomentumCalculator())
+        {
+            var native = new MomentumTickData[RawRealtimeTickFrame.MaxMomentumPoints];
+            var rolling = new MomentumTickData[RawRealtimeTickFrame.MaxRollingMomentumPoints];
+            calculator.Capture(match, out _, native, out var nativeCount, rolling, out var rollingCount);
+            Thread.Sleep(500);
+            calculator.Capture(match, out _, native, out nativeCount, rolling, out rollingCount);
+            Console.WriteLine($"\nmomentum: {nativeCount} points, {rollingCount} rolling; " +
+                              string.Join(" ", native.Take(nativeCount).Select(p => $"{p.TimeTicks}:{p.Value:+0.00;-0.00;0}")));
         }
 
         if (NativeMomentumSource.TryRead(match, out var source))
@@ -328,5 +345,156 @@ internal static class ArchiveSummary
         if (last is not null)
             Console.WriteLine($"  last frame: tick {last.Tick}, period {last.Period}, home goals {last.Home.Goals} shots {last.Home.Shots}, away goals {last.Away.Goals} shots {last.Away.Shots}, players {last.Players.Count}");
         return 0;
+    }
+
+    /// <summary>Writes the archive's frames as /api/match/frames would serve them, for the dashboard's code.</summary>
+    public static int WriteFramesJson(string path, string output)
+    {
+        if (!FMMatchLens.Plugin.Services.ArchiveReader.TryScan(path, 0, null, 1, int.MaxValue, true, out var result))
+        {
+            Console.WriteLine($"could not read {path}");
+            return 1;
+        }
+
+        RealtimeTickFrame? previous = null;
+        var wire = result.Frames.Select(frame =>
+        {
+            var converted = FMMatchLens.Plugin.Services.RealtimeMatchTimeline.ToWireFrame(frame, previous);
+            previous = frame;
+            return converted;
+        }).ToArray();
+        var options = new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
+        };
+        // One file per 2,400 frames, like the dashboard's own paged history requests.
+        const int page = 2_400;
+        for (var start = 0; start < wire.Length; start += page)
+        {
+            var file = $"{output}.{start / page:D2}.json";
+            using var stream = File.Create(file);
+            JsonSerializer.Serialize(stream, new
+            {
+                matchId = "archive", status = "ended", totalFrameCount = wire.Length,
+                frames = wire.Skip(start).Take(page).ToArray(),
+            }, options);
+        }
+
+        Console.WriteLine($"wrote {wire.Length} frames to {output}.NN.json");
+        return 0;
+    }
+}
+
+/// <summary>
+/// Replays an archive into the plugin's own timeline and local API server, so the dashboard's
+/// live requests can be exercised against the managed HttpListener used on macOS and Linux.
+/// Frames are appended at the given rate per second (0 = all at once; the game makes 4), then
+/// the match is marked over. Usage: --serve FILE.fmlens [framesPerSecond]
+/// </summary>
+internal static class ArchiveServer
+{
+    public static int Serve(string path, int framesPerSecond)
+    {
+        // The plugin's logger lives on its BepInEx plugin class, so BepInEx's IL2CPP assemblies
+        // must load. They are not in this tool's deps.json: look next to the tool, then in the
+        // BepInEx core folder named by FMMATCHLENS_BEPINEX_CORE (./mac/dev.sh serve sets it).
+        var folders = new[] { AppContext.BaseDirectory, Environment.GetEnvironmentVariable("FMMATCHLENS_BEPINEX_CORE") }
+            .Where(folder => !string.IsNullOrEmpty(folder)).Cast<string>().ToArray();
+        System.Runtime.Loader.AssemblyLoadContext.Default.Resolving += (context, name) =>
+        {
+            foreach (var folder in folders)
+            {
+                var candidate = Path.Combine(folder, name.Name + ".dll");
+                if (File.Exists(candidate)) return context.LoadFromAssemblyPath(candidate);
+            }
+
+            return null;
+        };
+        return ServeCore(path, framesPerSecond);
+    }
+
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private static int ServeCore(string path, int framesPerSecond)
+    {
+        // The plugin logs through BepInEx; give it a log source that prints here.
+        var log = new BepInEx.Logging.ManualLogSource("FMMatchLens");
+        log.LogEvent += (_, e) => Console.WriteLine($"[{e.Level}] {e.Data}");
+        typeof(FMMatchLens.Plugin.Plugin).GetProperty("PluginLog", BindingFlags.Static | BindingFlags.NonPublic)!
+            .SetValue(null, log);
+        if (!FMMatchLens.Plugin.Services.ArchiveReader.TryScan(path, 0, null, 1, int.MaxValue, true, out var result))
+        {
+            Console.WriteLine($"could not read {path}");
+            return 1;
+        }
+
+        var work = Directory.CreateTempSubdirectory("fmmatchlens-serve").FullName;
+        var archives = new FMMatchLens.Plugin.Services.MatchArchiveStore(Path.Combine(work, "matches"));
+        var graphics = new FMMatchLens.Plugin.Services.GraphicsAssetIndex(Path.Combine(work, "graphics"), Path.Combine(work, "graphics.json"));
+        var timeline = new FMMatchLens.Plugin.Services.RealtimeMatchTimeline(archives, graphics);
+        var server = new FMMatchLens.Plugin.Services.LocalApiServer(timeline, archives, graphics);
+        server.Start();
+        const nint source = 0x1000;
+        timeline.Begin(source);
+        if (result.Metadata is { } meta)
+            timeline.SetMetadata(meta.Home, meta.Away, meta.Players, meta.MatchDate, meta.Competition);
+
+        Console.WriteLine(framesPerSecond > 0
+            ? $"Serving {Path.GetFileName(path)} on http://127.0.0.1:16726, {result.Frames.Count} frames at {framesPerSecond} a second (the game makes 4)."
+            : $"Serving {Path.GetFileName(path)} on http://127.0.0.1:16726, all {result.Frames.Count} frames at once.");
+        var raw = new RawRealtimeTickFrame(0);
+        var watch = Stopwatch.StartNew();
+        var index = 0;
+        foreach (var frame in result.Frames)
+        {
+            Fill(raw, frame, source);
+            timeline.Append(raw);
+            index++;
+            if (framesPerSecond > 0)
+            {
+                var due = index * 1000L / framesPerSecond;
+                var wait = due - watch.ElapsedMilliseconds;
+                if (wait > 0) Thread.Sleep((int)wait);
+            }
+        }
+
+        // Full time, as the game reports it once the last frame is in.
+        Thread.Sleep(1000);
+        timeline.MarkEnded(source);
+        Console.WriteLine($"Replayed {index} frames in {watch.Elapsed.TotalSeconds:0.0} s; the match is now over. " +
+                          "Still serving on http://127.0.0.1:16726 (Ctrl+C to stop).");
+        Thread.Sleep(Timeout.Infinite);
+        return 0;
+    }
+
+    private static void Fill(RawRealtimeTickFrame raw, RealtimeTickFrame frame, nint source)
+    {
+        raw.Sequence = frame.Sequence;
+        raw.InstanceGeneration = 1;
+        raw.MatchAddress = source;
+        raw.Tick = frame.Tick;
+        raw.DisplayTick = frame.DisplayTick;
+        raw.Period = (byte)frame.Period;
+        raw.PossessionTeam = frame.PossessionTeam;
+        raw.BallHolderPlayerId = frame.BallHolderPlayerId ?? 0;
+        raw.BallXCentimeters = frame.BallXCentimeters;
+        raw.BallYCentimeters = frame.BallYCentimeters;
+        raw.BallZCentimeters = frame.BallZCentimeters;
+        raw.HalfPitchWidth = frame.HalfPitchWidth;
+        raw.HalfPitchLength = frame.HalfPitchLength;
+        raw.Home = frame.Home;
+        raw.Away = frame.Away;
+        raw.RatingResearch = frame.RatingResearch;
+        raw.Tactics = frame.Tactics;
+        raw.LegacyFormation = frame.LegacyFormation;
+        raw.FinishedByFlags = false;
+        raw.PlayerCount = (byte)Math.Min(frame.Players.Count, RawRealtimeTickFrame.MaxPlayers);
+        for (var i = 0; i < raw.PlayerCount; i++) raw.Players[i] = frame.Players[i];
+        raw.MomentumEventCount = (byte)Math.Min(frame.MomentumEvents.Count, RawRealtimeTickFrame.MaxMomentumEvents);
+        for (var i = 0; i < raw.MomentumEventCount; i++) raw.MomentumEvents[i] = frame.MomentumEvents[i];
+        raw.MomentumCount = (byte)Math.Min(frame.Momentum.Count, RawRealtimeTickFrame.MaxMomentumPoints);
+        for (var i = 0; i < raw.MomentumCount; i++) raw.Momentum[i] = frame.Momentum[i];
+        raw.RollingMomentumCount = (byte)Math.Min(frame.RollingMomentum.Count, RawRealtimeTickFrame.MaxRollingMomentumPoints);
+        for (var i = 0; i < raw.RollingMomentumCount; i++) raw.RollingMomentum[i] = frame.RollingMomentum[i];
     }
 }

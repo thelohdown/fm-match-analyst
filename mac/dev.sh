@@ -14,8 +14,14 @@
 #   ./mac/dev.sh health    ask the running plugin's local API whether it is up
 #   ./mac/dev.sh dump      save the local API's answers, the log and the newest match
 #                          archive under local/ (for debugging the capture)
-#   ./mac/dev.sh dashboard open the FMMatchLens dashboard (local/dashboard, built from
-#                          frontend/ with npm if it is not there yet)
+#   ./mac/dev.sh dashboard open the FMMatchLens dashboard (local/dashboard, rebuilt from
+#                          frontend/ with npm when frontend/ has changed) in Chrome, Firefox
+#                          or Edge, whichever is installed first; BROWSER="Safari" picks one
+#   ./mac/dev.sh serve [archive] [speed]   (or: serve 30, for the newest archive at 30x)
+#                          replay a match archive into the local API without FM27, for
+#                          trying the dashboard: speed 0 (default) loads the whole match at
+#                          once, as if the dashboard were opened at full time; 1 is real
+#                          time, 30 is 30x. The archive defaults to the newest one FM27 saved
 #   ./mac/dev.sh where     show where FM27 and BepInEx were found
 #
 # Paths can be overridden with FM27_DIR and BEPINEX_DIR.
@@ -297,19 +303,90 @@ cmd_snap() {
   echo "No snapshot after 20 seconds. Is a match open in FM27 with the plugin loaded? Check ./mac/dev.sh logs."
 }
 
+# The dashboard is tested upstream in Chrome, Firefox and Edge, so prefer those to the
+# default browser. Prints the app name, or nothing to use the default browser.
+pick_browser() {
+  if [ -n "${BROWSER:-}" ]; then
+    echo "$BROWSER"
+    return
+  fi
+  local name
+  for name in "Google Chrome" "Firefox" "Microsoft Edge"; do
+    if [ -d "/Applications/$name.app" ] || [ -d "$HOME/Applications/$name.app" ]; then
+      echo "$name"
+      return
+    fi
+  done
+}
+
 cmd_dashboard() {
-  local index="$LOCAL/dashboard/index.html"
+  local index="$LOCAL/dashboard/index.html" stale="" browser
   if [ ! -f "$index" ]; then
-    if ! command -v npm >/dev/null 2>&1; then
+    stale="missing"
+  elif [ -n "$(find "$REPO/frontend/src" "$REPO/frontend/index.html" "$REPO/frontend/public" -newer "$index" -print -quit 2>/dev/null)" ]; then
+    stale="older than frontend/"
+  fi
+  if [ -n "$stale" ]; then
+    if command -v npm >/dev/null 2>&1; then
+      echo "Building the dashboard (local/dashboard is $stale)..."
+      (cd "$REPO/frontend" && npm ci --no-audit --no-fund && npm run build)
+      rm -rf "$LOCAL/dashboard"
+      mkdir -p "$LOCAL/dashboard"
+      cp -R "$REPO/frontend/dist/." "$LOCAL/dashboard/"
+    elif [ "$stale" = "missing" ]; then
       echo "There is no dashboard in local/dashboard yet, and npm is not installed to build one."
       exit 1
+    else
+      echo "local/dashboard is older than frontend/, but npm is not installed to rebuild it; opening it anyway."
     fi
-    (cd "$REPO/frontend" && npm ci --no-audit --no-fund && npm run build)
-    mkdir -p "$LOCAL/dashboard"
-    cp -R "$REPO/frontend/dist/." "$LOCAL/dashboard/"
   fi
-  open "$index"
-  echo "Dashboard opened. It connects to http://127.0.0.1:16726 while FM27 runs with the plugin."
+  browser="$(pick_browser)"
+  if [ -n "$browser" ]; then
+    open -a "$browser" "$index"
+    echo "Dashboard opened in $browser."
+  else
+    open "$index"
+    echo "Dashboard opened in the default browser (upstream tests Chrome, Firefox and Edge)."
+  fi
+  echo "It connects to http://127.0.0.1:16726 while FM27 runs with the plugin, or while ./mac/dev.sh serve runs."
+}
+
+cmd_serve() {
+  need_bepinex
+  local archive="${1:-}" speed="${2:-0}" dotnet tool fps
+  # "serve 30" means the newest archive at 30x.
+  case "$archive" in
+    *[!0-9]*|'') ;;
+    *) if [ -z "${2:-}" ]; then speed="$archive"; archive=""; fi ;;
+  esac
+  if ! dotnet="$(find_dotnet)"; then
+    echo "The .NET SDK is not installed (see ./mac/dev.sh build)."
+    exit 1
+  fi
+  if [ -z "$archive" ]; then
+    archive="$(ls -t "$BEPINEX/plugins/FMMatchLens/data/matches"/*.fmlens "$LOCAL/archives"/*.fmlens 2>/dev/null | head -1 || true)"
+    if [ -z "$archive" ]; then
+      echo "No match archive found. Play a match with the plugin installed, or pass an .fmlens file."
+      exit 1
+    fi
+  fi
+  if [ ! -f "$archive" ]; then
+    echo "No such archive: $archive"
+    exit 1
+  fi
+  case "$speed" in
+    ''|*[!0-9]*) echo "speed must be a whole number: 0 for all at once, 1 for real time, 30 for 30x"; exit 1 ;;
+  esac
+  fps=$((speed * 4))
+  if curl -s --max-time 2 "$API" >/dev/null 2>&1; then
+    echo "Something already answers on 127.0.0.1:16726, probably FM27 with the plugin. Quit it first."
+    exit 1
+  fi
+  [ -f "$PLUGIN_DLL" ] || cmd_build
+  "$dotnet" build "$REPO/mac/offline" -nologo -v q
+  tool="$REPO/mac/offline/bin/Debug/net8.0/FMMatchLens.MacOffline.dll"
+  echo "Open the dashboard in another Terminal tab with ./mac/dev.sh dashboard."
+  FMMATCHLENS_BEPINEX_CORE="$BEPINEX/core" "$dotnet" "$tool" --serve "$archive" "$fps"
 }
 
 cmd_dump() {
@@ -347,6 +424,7 @@ case "${1:-}" in
   health) cmd_health ;;
   dashboard) cmd_dashboard ;;
   dump) cmd_dump ;;
+  serve) cmd_serve "${2:-}" "${3:-}" ;;
   where) need_game; echo "BepInEx: $BEPINEX" ;;
-  *) sed -n '2,23p' "$0"; exit 1 ;;
+  *) sed -n '2,29p' "$0"; exit 1 ;;
 esac
