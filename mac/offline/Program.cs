@@ -21,8 +21,11 @@ internal static class Program
         if (args.Length < 1)
         {
             Console.Error.WriteLine("usage: FMMatchLens.MacOffline SNAPSHOT-graph.bin [truth.json]");
+            Console.Error.WriteLine("       FMMatchLens.MacOffline --archive MATCH.fmlens");
             return 2;
         }
+
+        if (args[0] == "--archive" && args.Length > 1) return ArchiveSummary.Print(args[1]);
 
         // Must happen before Offsets is first touched.
         Environment.SetEnvironmentVariable("FMMATCHLENS_MAC_OFFSETS", "1");
@@ -292,4 +295,38 @@ internal static unsafe class GraphMemory
 
     [DllImport("libc", SetLastError = true)]
     private static extern void* mmap(void* address, nuint length, int protection, int flags, int fd, nint offset);
+}
+
+/// <summary>Summarises a .fmlens archive written by the capture: frames, events and momentum.</summary>
+internal static class ArchiveSummary
+{
+    public static int Print(string path)
+    {
+        if (!FMMatchLens.Plugin.Services.ArchiveReader.TryScan(path, 0, null, 1, int.MaxValue, true, out var result))
+        {
+            Console.WriteLine($"could not read {path}");
+            return 1;
+        }
+
+        var frames = result.Frames;
+        Console.WriteLine($"{Path.GetFileName(path)}: {frames.Count} frames, ticks {frames.FirstOrDefault()?.Tick}-{frames.LastOrDefault()?.Tick}");
+        var meta = result.Metadata;
+        if (meta is not null)
+            Console.WriteLine($"  metadata: {meta.Home.Name} v {meta.Away.Name}, {meta.Players?.Count} players");
+        var withEvents = frames.Count(f => f.MomentumEvents.Count > 0);
+        var events = frames.Sum(f => f.MomentumEvents.Count);
+        var momentum = frames.Sum(f => f.Momentum.Count);
+        var rolling = frames.Sum(f => f.RollingMomentum.Count);
+        var updates = frames.Sum(f => f.MomentumEventUpdates?.Count ?? 0);
+        var pitch = frames.Where(f => f.HalfPitchWidth > 0).Select(f => $"{f.HalfPitchWidth:0.0}x{f.HalfPitchLength:0.0}").Distinct().Take(3);
+        Console.WriteLine($"  momentum events: {events} in {withEvents} frames, event updates {updates}; momentum points {momentum}, rolling {rolling}");
+        Console.WriteLine($"  half pitch sizes seen: {string.Join(", ", pitch)}; frames with zero pitch: {frames.Count(f => f.HalfPitchWidth <= 0)}");
+        var shots = frames.SelectMany(f => f.MomentumEvents).Where(e => e.EventType is >= 1 and <= 5)
+            .GroupBy(e => e.Team).Select(g => $"{g.Key}: {g.Count()}");
+        Console.WriteLine($"  shot events by team: {string.Join(", ", shots)}");
+        var last = frames.LastOrDefault();
+        if (last is not null)
+            Console.WriteLine($"  last frame: tick {last.Tick}, period {last.Period}, home goals {last.Home.Goals} shots {last.Home.Shots}, away goals {last.Away.Goals} shots {last.Away.Shots}, players {last.Players.Count}");
+        return 0;
+    }
 }

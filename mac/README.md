@@ -16,8 +16,10 @@ On macOS the plugin now runs **FMMatchLens's normal capture** with a macOS offse
 | Player positions, per-player stats, ratings, team stats, momentum events, xG | Mapped; FMMatchLens's own read code reproduces every number FM showed at full time (offline check below) |
 | Player IDs, shirt numbers, birth dates, nationality, contract (wage, squad number) | Mapped; verified against snapshots |
 | Competition ID and colours, team IDs and kit colours | Mapped; verified against snapshots |
-| Player, club and competition names; managers | Mapped by layout but not verified: those objects were never in a snapshot. The capture logs a `macOS metadata check` line per match to confirm them |
-| Human v AI manager | Not mapped: every manager is reported as AI. The log records each manager's Itanium "offset to top" so the two kinds can be told apart |
+| Player, club and competition names; managers; match date | Mapped; verified live (Chicago v LAFC: "Chicago", "LAFC", "Friendly", "test test", "Xavier Tamarit", 2025-12-30, every player's name). The capture logs a `macOS metadata check` line per match |
+| Human v AI manager | Mapped: Itanium "offset to top" of the manager's person is 0x548 for a human manager and 0x208 for an AI one (Windows RTTI: 0x440 / 0x100) |
+| Capture session (picking the animated match, archive, API, dashboard) | Working live: a whole match locked with no missing ticks and was archived; the dashboard shows names, ratings, stats, goals and substitutions |
+| Momentum chart, shot map, xG timeline | **Empty in the dashboard** on the first live run; under investigation (the event layout itself is verified) |
 | Attributes, position familiarity, condition, morale, ability, season stats | **Off on macOS**: the ActualPlayer part of the player record is laid out differently and not mapped |
 | Tactics, rating research (rating engine internals) | **Off on macOS**: not mapped |
 
@@ -33,6 +35,10 @@ points and whenever a match stops for 5 seconds, or on request (`./mac/dev.sh sn
 `./mac/dev.sh logs` copies them to `local/probe/`; `mac/read_graph.py` reads them.
 
 ### Offline check (`mac/offline`)
+
+`mac/offline --archive MATCH.fmlens` summarises an archive the capture wrote (frames,
+momentum events, momentum points, pitch size). `./mac/dev.sh dump` copies the newest one
+to `local/archives/`.
 
 `mac/offline` runs the plugin's own capture code against a graph snapshot on Linux: it
 maps the snapshot's objects back at their original addresses, forces the macOS offsets

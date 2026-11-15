@@ -65,6 +65,8 @@ internal sealed class GameMatchTickHook : IDisposable
     private readonly Dictionary<(nint Match, int Slot), RatingResearchPlayerData> _lastRatingResearchBySlot = new();
     private readonly Dictionary<nint, (float Home, float Away)> _ratingBackgroundByMatch = new();
     private readonly ConcurrentDictionary<uint, byte> _loggedMacManagerOffsets = new();
+    private const uint MacHumanManagerPersonOffset = 0x548;
+    private const uint MacStaffPersonOffset = 0x208;
     private readonly Dictionary<nint, int> _lastRatingCapturedTickByMatch = new();
     private readonly Dictionary<nint, long> _ratingGenerations = new();
     private readonly Dictionary<nint, RatingResearchMatchData?> _lastRatingMatchByMatch = new();
@@ -1721,8 +1723,9 @@ internal sealed class GameMatchTickHook : IDisposable
     /// <summary>
     /// macOS manager identity. Itanium C++ objects keep the subobject's distance from the start
     /// of the whole object at vtable-0x10 ("offset to top"), the counterpart of the MSVC RTTI
-    /// subobject offset used on Windows. Which values mean human manager and AI staff is not
-    /// known yet, so every manager is reported as staff and each value seen is logged once.
+    /// subobject offset used on Windows (0x440 human, 0x100 staff). On macOS a human manager's
+    /// person sits 0x548 into its object and an AI manager's 0x208 (FM27 full release, seen live
+    /// for both sides of one match). Each value seen is logged once.
     /// </summary>
     private bool TryReadMacManagerIdentity(
         nint team,
@@ -1748,7 +1751,12 @@ internal sealed class GameMatchTickHook : IDisposable
         }
 
         offsetToTop = unchecked((uint)(-(long)rawOffsetToTop));
-        kind = ManagerKind.Staff;
+        kind = offsetToTop switch
+        {
+            MacHumanManagerPersonOffset => ManagerKind.Human,
+            MacStaffPersonOffset => ManagerKind.Staff,
+            _ => ManagerKind.Unsupported
+        };
         uid = ReadUid(person + Offsets.Person.Uid);
         if (_loggedMacManagerOffsets.TryAdd(offsetToTop, 0))
         {
