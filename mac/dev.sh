@@ -29,7 +29,7 @@
 #                          codex builds the shared server and adds Codex configuration;
 #                          codex-config prints it (both need Python 3.11+)
 #   ./mac/dev.sh release   build the plugin and the analyst, and package them with the
-#                          tester installer as local/release/FM-Analyst-<version>.zip
+#                          tester installer as local/release/FM-Match-Analyst-<version>.zip
 #   ./mac/dev.sh where     show where FM27 and BepInEx were found
 #
 # Paths can be overridden with FM27_DIR and BEPINEX_DIR.
@@ -507,7 +507,7 @@ cmd_release() {
   local version plugin_version name out
   version="$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$REPO/mcp/package.json" | head -1)"
   plugin_version="$(sed -n 's/.*<ProjectVersion>\(.*\)<\/ProjectVersion>.*/\1/p' "$REPO/Directory.Build.props" | head -1)"
-  name="FM-Analyst-$version"
+  name="FM-Match-Analyst-$version"
   out="$LOCAL/release/$name"
   rm -rf "$out" "$out.zip"
   mkdir -p "$out/files"
@@ -515,8 +515,8 @@ cmd_release() {
   cp "$REPO/mcp/dist/fm-match-analyst.mcpb" "$out/files/"
   echo "$version" > "$out/files/VERSION"
   echo "FMMatchLens $plugin_version (macOS port $(git -C "$REPO" rev-parse --short HEAD))" > "$out/files/PLUGIN_VERSION"
-  cp "$REPO/mac/release/install.command" "$out/Install FM Analyst.command"
-  chmod +x "$out/Install FM Analyst.command"
+  cp "$REPO/mac/release/install.command" "$out/Install FM Match Analyst.command"
+  chmod +x "$out/Install FM Match Analyst.command"
   cp "$REPO/mac/release/README.txt" "$out/README.txt"
   cp "$REPO/LICENSE" "$out/LICENSE.txt"
   (cd "$LOCAL/release" && ditto -c -k --keepParent "$name" "$name.zip")

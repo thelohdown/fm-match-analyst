@@ -1,4 +1,4 @@
-# FM Analyst on a Mac: getting started
+# FM Match Analyst on a Mac: getting started
 
 This fork runs FMMatchLens on macOS and adds an AI match analyst. You play Football
 Manager 27 as normal; when you pause a match you can ask Claude what is going on and
@@ -19,11 +19,11 @@ is an extension in Claude Desktop that reads what the plugin records. You need b
 
 ## Install with the installer zip
 
-Use this if someone sent you `FM-Analyst-<version>.zip`. You need neither this
+Use this if someone sent you `FM-Match-Analyst-<version>.zip`. You need neither this
 repository nor any developer tools.
 
 1. Quit FM27.
-2. Unzip the file and double-click **Install FM Analyst.command**.
+2. Unzip the file and double-click **Install FM Match Analyst.command**.
    If macOS says it cannot be opened: System Settings > Privacy & Security, scroll
    down, click **Open Anyway**. The installer is not signed, so macOS asks once.
 3. Paste the launch option it copied for you into Steam: right-click Football
@@ -123,7 +123,7 @@ were pressing high"). It saves your verdict to `feedback.jsonl` in that folder.
 
 - **Update:** run the new installer, or `git pull` then `./mac/dev.sh install` and
   `./mac/dev.sh mcp`.
-- **Uninstall:** in Terminal, `"<path to>/Install FM Analyst.command" --uninstall`
+- **Uninstall:** in Terminal, `"<path to>/Install FM Match Analyst.command" --uninstall`
   removes the plugin and keeps your saved matches. Then clear FM27's Launch Options in
   Steam and remove the extension in Claude Desktop > Settings > Extensions.
 

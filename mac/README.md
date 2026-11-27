@@ -111,9 +111,9 @@ known positions), and walks override maps with the same bounds as on Windows.
 
 `./mac/dev.sh release` builds the plugin and the analyst extension and packages
 them with `mac/release/install.command` and `mac/release/README.txt` as
-`local/release/FM-Analyst-<version>.zip`. Testers need neither the repo, .NET nor
+`local/release/FM-Match-Analyst-<version>.zip`. Testers need neither the repo, .NET nor
 Node: they download the sortitoutsi BepInEx package, double-click
-"Install FM Analyst.command", paste the launch option it copies into Steam, and
+"Install FM Match Analyst.command", paste the launch option it copies into Steam, and
 click Install in Claude Desktop. The installer finds FM27 in any Steam library,
 installs BepInEx from Downloads (a zip, or the folder Safari unzipped), clears
 macOS's quarantine flag, copies the plugin, and opens the extension. Run again,

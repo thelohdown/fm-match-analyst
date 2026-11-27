@@ -1,5 +1,5 @@
-FM Analyst (alpha)
-==================
+FM Match Analyst (alpha)
+========================
 
 An AI match analyst for Football Manager 27: pause a match and ask Claude what
 is going on and what to change. It reads the match as it is played; it never
@@ -16,7 +16,7 @@ Install (about 5 minutes, plus a few on FM's first launch)
 1. Quit FM27.
 2. Download "FM27 BepInEx 6 IL2CPP for macOS (Apple Silicon)" from
    sortitoutsi.net into your Downloads folder. (Skip if you already use it.)
-3. Double-click "Install FM Analyst.command".
+3. Double-click "Install FM Match Analyst.command".
    If macOS says it cannot be opened: System Settings > Privacy & Security,
    scroll down, click "Open Anyway". Or open Terminal, drag the file into it
    and press Return.
@@ -46,13 +46,13 @@ Documents/FM Match Analyst/feedback.jsonl. Send that file with your notes.
 
 Updating
 --------
-- New FM Analyst version: double-click the new installer.
+- New FM Match Analyst version: double-click the new installer.
 - FM update and the game will not start: download the new BepInEx package
   from sortitoutsi (usually out within a day) and double-click the installer
   again. It keeps your saved matches.
 
 Uninstall
 ---------
-In Terminal: "<path to>/Install FM Analyst.command" --uninstall
+In Terminal: "<path to>/Install FM Match Analyst.command" --uninstall
 Then clear FM27's Launch Options in Steam, and remove the extension in
 Claude Desktop > Settings > Extensions.
