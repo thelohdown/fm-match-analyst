@@ -28,7 +28,7 @@
 
 ---
 
-> **This repository is FM Match Analyst.** It runs FMMatchLens on macOS (Apple Silicon, FM 27.1) and adds an AI analyst you can ask about your match in Claude: see [.github/README.md](.github/README.md) for the overview and [mac/GETTING-STARTED.md](mac/GETTING-STARTED.md) to install. What follows is the original FMMatchLens README.
+> **This repository is FM Tinkerman.** It runs FMMatchLens on macOS (Apple Silicon, FM 27.1) and adds an AI analyst you can ask about your match in Claude: see [.github/README.md](.github/README.md) for the overview and [mac/GETTING-STARTED.md](mac/GETTING-STARTED.md) to install. What follows is the original FMMatchLens README.
 
 FMMatchLens reads Football Manager match data at runtime, exposes local HTTP and WebSocket endpoints, and presents live match information in a browser dashboard. Data stays on your computer by default and can also be saved as `.fmlens` archives for offline replay.
 

@@ -14,6 +14,13 @@ except ModuleNotFoundError:
     sys.exit("Codex setup requires Python 3.11 or newer (for TOML configuration validation).")
 
 
+def default_data_dir() -> str:
+    """Documents/FM Tinkerman, or the folder used under the earlier name if only that exists."""
+    folder = Path.home() / "Documents/FM Tinkerman"
+    earlier = Path.home() / "Documents/FM Match Analyst"
+    return str(earlier if earlier.exists() and not folder.exists() else folder)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--install", action="store_true")
@@ -30,7 +37,7 @@ def main():
         "env": {
             "FMMATCHLENS_API": os.environ.get("FMMATCHLENS_API") or "http://127.0.0.1:16726",
             "FMMATCHLENS_ARCHIVE_DIR": os.environ.get("FMMATCHLENS_ARCHIVE_DIR") or str(repo / "local/archives"),
-            "FM_ANALYST_DATA_DIR": os.environ.get("FM_ANALYST_DATA_DIR") or str(Path.home() / "Documents/FM Match Analyst"),
+            "FM_ANALYST_DATA_DIR": os.environ.get("FM_ANALYST_DATA_DIR") or default_data_dir(),
             "FM_ANALYST_DETAIL": os.environ.get("FM_ANALYST_DETAIL") or "coach",
         },
     }
@@ -57,7 +64,7 @@ def main():
     existing = parsed.get("mcp_servers", {}).get("fm-match-analyst")
     if existing is not None:
         if existing == server:
-            print(f"FM Match Analyst is already configured in {config}")
+            print(f"FM Tinkerman is already configured in {config}")
             return
         parser.error(f"{config} already defines fm-match-analyst; left unchanged. Use './mac/dev.sh mcp codex-config' to compare the suggested settings.")
     updated = original.rstrip() + "\n\n" + snippet
@@ -77,7 +84,7 @@ def main():
             os.replace(temporary, config)
         finally:
             temporary.unlink(missing_ok=True)
-    print(f"Added FM Match Analyst to {config}. Open a new local Codex session to load it. Managed Work chats do not load this local configuration.")
+    print(f"Added FM Tinkerman to {config}. Open a new local Codex session to load it. Managed Work chats do not load this local configuration.")
 
 
 if __name__ == "__main__":

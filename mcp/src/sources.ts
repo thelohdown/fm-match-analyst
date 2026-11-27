@@ -261,8 +261,8 @@ export function archiveProblem(error: unknown): string {
   const structure = /Unsupported archive structure (\d+\.\d+)/.exec(message)
   if (structure) {
     return (
-      `it was saved in a newer archive format (${structure[1]}) than this version of FM Match Analyst can read. ` +
-      "Updating the FM Match Analyst extension fixes this; the match itself is safe in the file"
+      `it was saved in a newer archive format (${structure[1]}) than this version of FM Tinkerman can read. ` +
+      "Updating the FM Tinkerman extension fixes this; the match itself is safe in the file"
     )
   }
   if (/no (recoverable )?complete match frames/i.test(message)) {

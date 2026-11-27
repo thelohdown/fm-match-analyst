@@ -1,6 +1,6 @@
-# FM Match Analyst development
+# FM Tinkerman development
 
-This repository is FM Match Analyst: FMMatchLens (osnsyc/FMMatchLens) ported to macOS,
+This repository is FM Tinkerman: FMMatchLens (osnsyc/FMMatchLens) ported to macOS,
 plus an MCP match analyst. `main` merges upstream; keep upstream-owned files close to
 upstream so those merges stay easy.
 

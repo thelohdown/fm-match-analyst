@@ -1,4 +1,4 @@
-# FM Match Analyst (MCP server)
+# FM Tinkerman (MCP server)
 
 A read-only [MCP](https://modelcontextprotocol.io) server that lets Claude
 (Desktop or Code) and Codex analyse a Football Manager 27 match from
@@ -123,7 +123,7 @@ half, how the half turned, what the opponent is doing, the plan so far, players
 to watch with bench options). Every number and chart is worked out from the
 match by `build_report`; the analyst writes only the verdict, the decisions and
 the plan checks. The page is saved as one HTML file in
-`~/Documents/FM Match Analyst/reports` (or `FM_ANALYST_DATA_DIR/reports`), sized
+`~/Documents/FM Tinkerman/reports` (or `FM_ANALYST_DATA_DIR/reports`), sized
 for landscape US Letter: open it in a browser and print it or save a PDF. The
 user's team is blue and the opponent orange throughout, and no status relies on
 red and green.
@@ -152,7 +152,7 @@ back to the newest archive when nothing is live.
 | `list_matches`, `load_match` | The live match and the archives; switch between them |
 | `get_last_actions` | The actions saved with your last post-match report, each checked against this match: the figure it should move, then and now, and done, not yet or worse |
 | `build_report` | A printable two-page post-match report (what it means for us, then the evidence) or half-time sheet, saved as an HTML page: every number and chart from the match, with the analyst's verdict, decisions and plan checks (only when the user asks for one) |
-| `note_feedback` | Saves your verdict on an answer (with your words, the question, the advice and the match situation) to `feedback.jsonl` in `~/Documents/FM Match Analyst` or `FM_ANALYST_DATA_DIR` |
+| `note_feedback` | Saves your verdict on an answer (with your words, the question, the advice and the match situation) to `feedback.jsonl` in `~/Documents/FM Tinkerman` or `FM_ANALYST_DATA_DIR` |
 
 Every answer is checked first: team totals must equal the sum of the players'
 (shots, shots on target, passes, fouls, xG, goals), the pitch, player counts,

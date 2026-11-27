@@ -1,7 +1,7 @@
 {
   "manifest_version": "0.3",
   "name": "fm-match-analyst",
-  "display_name": "FM Match Analyst",
+  "display_name": "FM Tinkerman",
   "version": "0.0.0",
   "description": "Ask Claude about your live Football Manager match: stats, shots, players, shape and momentum from FMMatchLens's capture.",
   "long_description": "A read-only analyst for Football Manager 27. It reads the match FMMatchLens is capturing (its local API on 127.0.0.1:16726) or the match archives it saves, and gives Claude the score, momentum, team and player stats for any stretch of the match, every shot with xG and location, cards and substitutions, average positions and team shape in and out of possession, the pass network, and where the ball is won and lost. Pause a match and ask what is going wrong, or ask for a printable post-match or half-time report. It never changes anything in the game. Needs FM27 with BepInEx and the FMMatchLens plugin.",
@@ -49,7 +49,7 @@
     "data_dir": {
       "type": "directory",
       "title": "Data folder",
-      "description": "Where your verdicts on answers (feedback.jsonl) and printable match reports (reports/) are saved. Leave empty for Documents/FM Match Analyst.",
+      "description": "Where your verdicts on answers (feedback.jsonl) and printable match reports (reports/) are saved. Leave empty for Documents/FM Tinkerman.",
       "required": false
     },
     "detail_level": {

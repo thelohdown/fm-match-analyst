@@ -15,9 +15,9 @@ describe("settings from the environment", () => {
   it("treats an unfilled placeholder or blank as unset", () => {
     process.env.FM_ANALYST_DATA_DIR = "${user_config.data_dir}"
     expect(setting("FM_ANALYST_DATA_DIR")).toBeUndefined()
-    expect(dataFolder()).toMatch(/Documents[/\\]FM Match Analyst$/)
+    expect(dataFolder()).toMatch(/Documents[/\\]FM (Tinkerman|Match Analyst)$/)
     process.env.FM_ANALYST_DATA_DIR = "  "
-    expect(dataFolder()).toMatch(/FM Match Analyst$/)
+    expect(dataFolder()).toMatch(/FM (Tinkerman|Match Analyst)$/)
   })
 
   it("keeps a real value", () => {

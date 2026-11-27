@@ -1,5 +1,5 @@
 #!/bin/bash
-# FM Match Analyst installer for alpha testers (macOS, Apple Silicon, FM27 on Steam).
+# FM Tinkerman installer for alpha testers (macOS, Apple Silicon, FM27 on Steam).
 #
 # Double-click this file. It:
 #   1. checks this Mac can run it, and that FM27 is closed;
@@ -8,10 +8,10 @@
 #      is not installed yet (download it from sortitoutsi first);
 #   4. installs the FMMatchLens capture plugin;
 #   5. puts the Steam launch option on your clipboard, if it is not set yet;
-#   6. opens the FM Match Analyst extension, so Claude Desktop installs it.
+#   6. opens the FM Tinkerman extension, so Claude Desktop installs it.
 # Run it again to update. Nothing in fm.app is changed.
 #
-#   "Install FM Match Analyst.command" --uninstall   removes the plugin again
+#   "Install FM Tinkerman.command" --uninstall   removes the plugin again
 #
 # FM27_DIR=/path/to/folder/with/fm.app overrides where FM27 is looked for.
 set -uo pipefail
@@ -89,7 +89,7 @@ find_game() {
 # ---------------------------------------------------------------------------
 
 uninstall() {
-  bold "Removing the FM Match Analyst capture plugin"
+  bold "Removing the FM Tinkerman capture plugin"
   find_game || fail "FM27 was not found." "Run it as: FM27_DIR=\"/path/to/Football Manager 27\" \"$0\" --uninstall"
   local plugin="$GAME/FM27-BepInEx/BepInEx/plugins/FMMatchLens"
   if [ -f "$plugin/FMMatchLens.Plugin.dll" ]; then
@@ -100,20 +100,20 @@ uninstall() {
   echo
   note "Your saved matches stay in $plugin/data; delete that folder too if you do not want them."
   note "BepInEx stays, in case you use it for other mods. To stop using it, clear FM27's Launch Options in Steam (Properties > General)."
-  note "To remove the extension: Claude Desktop > Settings > Extensions > FM Match Analyst > Uninstall."
+  note "To remove the extension: Claude Desktop > Settings > Extensions > FM Tinkerman > Uninstall."
   finish 0
 }
 
 [ "${1:-}" = "--uninstall" ] && uninstall
 
 clear 2>/dev/null || true
-bold "FM Match Analyst installer (alpha $VERSION)"
+bold "FM Tinkerman installer (alpha $VERSION)"
 echo
 
 # 1. This Mac -----------------------------------------------------------------
 bold "1. Checking this Mac"
 [ -f "$FILES/FMMatchLens.Plugin.dll" ] && [ -f "$FILES/fm-match-analyst.mcpb" ] ||
-  fail "The installer's files are missing." "Keep \"Install FM Match Analyst.command\" next to the \"files\" folder it came with, then try again."
+  fail "The installer's files are missing." "Keep \"Install FM Tinkerman.command\" next to the \"files\" folder it came with, then try again."
 [ "$(uname -m)" = "arm64" ] ||
   fail "This Mac has an Intel processor." "The FM27 BepInEx package for macOS only runs on Apple Silicon (M1 or later)."
 ok "Apple Silicon"
@@ -253,7 +253,7 @@ fi
 
 # 6. Claude Desktop extension -------------------------------------------------------
 echo
-bold "6. FM Match Analyst extension for Claude Desktop"
+bold "6. FM Tinkerman extension for Claude Desktop"
 if [ -d "/Applications/Claude.app" ] || [ -d "$HOME/Applications/Claude.app" ] || mdfind 'kMDItemCFBundleIdentifier == "com.anthropic.claudefordesktop"' 2>/dev/null | grep -q .; then
   open "$FILES/fm-match-analyst.mcpb" 2>/dev/null && ok "Opened: click Install in Claude Desktop (choose your Level of help there if you like)" ||
     warn "Could not open it: double-click files/fm-match-analyst.mcpb yourself."
@@ -275,5 +275,5 @@ fi
 step=$((step + 1))
 echo "  $step. Start a match, pause it, and ask Claude: \"how is my match going?\""
 echo
-note "To update FM Match Analyst, run the new installer. If an FM update stops the game starting, download the new BepInEx package from sortitoutsi (usually out within a day) and run this installer again: it swaps it in and keeps your matches."
+note "To update FM Tinkerman, run the new installer. If an FM update stops the game starting, download the new BepInEx package from sortitoutsi (usually out within a day) and run this installer again: it swaps it in and keeps your matches."
 finish 0

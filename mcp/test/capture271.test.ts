@@ -99,7 +99,7 @@ describe("archives the analyst can't read", () => {
     header.writeUInt16LE(99, 10)
     await writeFile(path, header)
     const entry = (await listArchives()).find((candidate) => candidate.file === "match-1.fmlens")!
-    await expect(loadArchive(entry)).rejects.toThrow(/newer archive format \(2\.99\).*Updating the FM Match Analyst extension/)
+    await expect(loadArchive(entry)).rejects.toThrow(/newer archive format \(2\.99\).*Updating the FM Tinkerman extension/)
     // Remembered, so the file isn't parsed again on every question.
     await expect(loadArchive(entry)).rejects.toThrow(/newer archive format/)
   })

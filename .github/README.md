@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="../frontend/public/icon.svg" alt="FM Match Analyst icon" width="112" height="112">
+  <img src="../frontend/public/icon.svg" alt="FM Tinkerman icon" width="112" height="112">
 </p>
 
-<h1 align="center">FM Match Analyst</h1>
+<h1 align="center">FM Tinkerman</h1>
 
 <p align="center">
   An AI match analyst for Football Manager 27, built on FMMatchLens
@@ -42,7 +42,7 @@ your first match, and what to do when something is not working.
 | Part | What it does | Where |
 | --- | --- | --- |
 | Capture plugin | Sits inside FM and records the match: score, stats, ratings, shots, positions, your tactic, player attributes | `src/`, macOS notes in [mac/README.md](../mac/README.md) |
-| FM Match Analyst | An extension for Claude Desktop (also Claude Code and Codex) that reads what the plugin records and answers your questions | [mcp/](../mcp/README.md) |
+| FM Tinkerman | An extension for Claude Desktop (also Claude Code and Codex) that reads what the plugin records and answers your questions | [mcp/](../mcp/README.md) |
 | Dashboard | A live match dashboard in the browser, from upstream | `frontend/` |
 
 ## What it can see on FM 27.1

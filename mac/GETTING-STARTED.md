@@ -1,4 +1,4 @@
-# FM Match Analyst on a Mac: getting started
+# FM Tinkerman on a Mac: getting started
 
 This project runs FMMatchLens on macOS and adds an AI match analyst. You play Football
 Manager 27 as normal; when you pause a match you can ask Claude what is going on and
@@ -19,16 +19,16 @@ is an extension in Claude Desktop that reads what the plugin records. You need b
 
 ## Install with the installer zip
 
-Use this if someone sent you `FM-Match-Analyst-<version>.zip`. You need neither this
+Use this if someone sent you `FM-Tinkerman-<version>.zip`. You need neither this
 repository nor any developer tools.
 
 1. Quit FM27.
-2. Unzip the file and double-click **Install FM Match Analyst.command**.
+2. Unzip the file and double-click **Install FM Tinkerman.command**.
    If macOS says it cannot be opened: System Settings > Privacy & Security, scroll
    down, click **Open Anyway**. The installer is not signed, so macOS asks once.
 3. Paste the launch option it copied for you into Steam: right-click Football
    Manager 27 > Properties > General > Launch Options.
-4. Click **Install** when Claude Desktop shows FM Match Analyst.
+4. Click **Install** when Claude Desktop shows FM Tinkerman.
 5. Launch FM27 from Steam. The first launch takes a few minutes while BepInEx
    prepares its own copy of the game; later launches are normal.
 
@@ -63,7 +63,7 @@ Claude in Claude Desktop:
 With FM closed, "How did my last match go?" reads the last finished match from disk.
 
 Prefer hints over full answers? Say "just hints" in the chat, or set Level of help in
-Claude Desktop > Settings > Extensions > FM Match Analyst.
+Claude Desktop > Settings > Extensions > FM Tinkerman.
 
 ## What it can see on FM 27.1
 
@@ -114,7 +114,7 @@ A game update can move them.
 
 Everything stays on your Mac. Saved matches are `.fmlens` files in
 `FM27-BepInEx/BepInEx/plugins/FMMatchLens/data/matches` inside the game's folder.
-Reports and your feedback are in `Documents/FM Match Analyst`.
+Reports and your feedback are in `Documents/FM Tinkerman`.
 
 When an answer is right or wrong, tell Claude ("that was useful", "that's wrong, they
 were pressing high"). It saves your verdict to `feedback.jsonl` in that folder.
@@ -123,7 +123,7 @@ were pressing high"). It saves your verdict to `feedback.jsonl` in that folder.
 
 - **Update:** run the new installer, or `git pull` then `./mac/dev.sh install` and
   `./mac/dev.sh mcp`.
-- **Uninstall:** in Terminal, `"<path to>/Install FM Match Analyst.command" --uninstall`
+- **Uninstall:** in Terminal, `"<path to>/Install FM Tinkerman.command" --uninstall`
   removes the plugin and keeps your saved matches. Then clear FM27's Launch Options in
   Steam and remove the extension in Claude Desktop > Settings > Extensions.
 
