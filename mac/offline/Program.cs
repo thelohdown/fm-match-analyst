@@ -31,9 +31,9 @@ internal static partial class Program
         if (args[0] == "--archive-json" && args.Length > 2) return ArchiveSummary.WriteFramesJson(args[1], args[2]);
         if (args[0] == "--serve" && args.Length > 1) return ArchiveServer.Serve(args[1], args.Length > 2 ? int.Parse(args[2]) : 0);
 
-        // Offsets takes the macOS layout only when running on macOS (Offsets.Mac.cs).
-        if (!MacNative.IsMacOS)
-            throw new InvalidOperationException("Probe snapshots can only be read on macOS: the macOS offsets are not selected elsewhere.");
+        // Must happen before MacNative or Offsets is first touched.
+        Environment.SetEnvironmentVariable("FMMATCHLENS_MAC_OFFSETS", "1");
+        if (!MacNative.IsMacOS) throw new InvalidOperationException("macOS offsets were not selected.");
 
         var graph = GraphFile.Read(args[0]);
         var pages = GraphMemory.Map(graph);

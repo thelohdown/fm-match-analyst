@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using FMMatchLens.Plugin.Diagnostics;
 using FMMatchLens.Plugin.Domain;
 
@@ -80,5 +81,57 @@ internal sealed partial class GameMatchTickHook
             $"{home.Manager?.FirstName} {home.Manager?.SecondName}), away='{away.Name}' (team {away.Uid}, club " +
             $"{away.ClubUid}, manager {away.Manager?.FirstName} {away.Manager?.SecondName}), competition=" +
             $"'{competition?.Name}' ({competition?.Uid}), date={date}, players: {firstPlayers}.");
+    }
+
+    /// <summary>
+    /// macOS check before trusting the ActualPlayer layout: 15 position familiarities of 1-20
+    /// with at least one natural position, and every attribute byte between 1 and 100.
+    /// </summary>
+    private bool MacPlayerRecordLooksRight(nint actualPlayer)
+    {
+        var start = actualPlayer + Offsets.ActualPlayer.PositionGk;
+        var length = Offsets.ActualPlayer.Concentration - Offsets.ActualPlayer.PositionGk + 1;
+        if (!VirtualMemory.IsReadable(start, length)) return false;
+        var best = 0;
+        for (var i = 0; i < PlayerPositionFamiliarity.Labels.Length; i++)
+        {
+            var value = Marshal.ReadByte(start + i);
+            if (value is < 1 or > 20) return false;
+            best = Math.Max(best, value);
+        }
+        if (best < 15) return false;
+        for (var offset = Offsets.ActualPlayer.Crossing; offset <= Offsets.ActualPlayer.Concentration; offset++)
+        {
+            var value = Marshal.ReadByte(actualPlayer + offset);
+            if (value is < 1 or > 100) return false;
+        }
+        return true;
+    }
+
+    private int _macPlayerRecordLogged;
+
+    /// <summary>
+    /// Reports once whether the player record sits where expected relative to the person. When it
+    /// does not, lists every nearby distance at which a record does look like a player's, so one
+    /// live match gives the value to use.
+    /// </summary>
+    private void LogMacPlayerRecordOnce(nint person, bool looksRight)
+    {
+        if (Interlocked.Exchange(ref _macPlayerRecordLogged, 1) != 0) return;
+        if (looksRight)
+        {
+            QueueDiagnostic(DiagnosticSeverity.Info,
+                $"macOS player record check: looks right at person-0x{-Offsets.Person.ActualPlayerDelta:X}.");
+            return;
+        }
+
+        var found = new List<string>();
+        for (var delta = -0x800; delta <= 0x400 && found.Count < 8; delta += 8)
+        {
+            if (MacPlayerRecordLooksRight(person + delta)) found.Add(delta < 0 ? $"-0x{-delta:X}" : $"+0x{delta:X}");
+        }
+        QueueDiagnostic(DiagnosticSeverity.Warning,
+            $"macOS player record check: nothing player-like at person-0x{-Offsets.Person.ActualPlayerDelta:X}; " +
+            $"player-like records at person{(found.Count == 0 ? " (none within -0x800..+0x400)" : string.Join(", ", found))}.");
     }
 }

@@ -112,6 +112,8 @@ internal static partial class Offsets
             SpecialW31 = 0x23DC;
             TacticalRosterSlot = 0x23B7;
             TacticalFormationSlot = 0x23E1;
+            // 27.0 macOS value (0xCD8) plus the 0x598 the fields before the stats pointer moved in 27.1.
+            OppositionPositionKey = 0x1270;
             Condition = 0x2204;
         }
     }
@@ -121,6 +123,9 @@ internal static partial class Offsets
         static Person()
         {
             if (!MacNative.IsMacOS) return;
+            // The ActualPlayer part sits 0x390 before the person record on macOS (27.0; a record
+            // that does not look like a player's is refused, see MacPlayerRecordLooksRight).
+            ActualPlayerDelta = -0x390;
             FirstName = -0xF0;
             SecondName = -0xE8;
             CommonName = -0xE0;
@@ -133,6 +138,58 @@ internal static partial class Offsets
             InternationalGoals = -0xA;
             YouthApps = -0x8;
             YouthGoals = -0x6;
+        }
+    }
+
+    public static partial class Tactics
+    {
+        // First mapped on macOS for 27.0 from graph snapshots. 27.1 moved the context fields 8
+        // higher on Windows; the same shift is assumed here, and a configuration whose formations
+        // do not decode is refused (MacTacticsDiagnostics.LooksLikeFormation), so a wrong guess
+        // gives no tactic rather than a made-up one.
+        public static partial class Context
+        {
+            static Context()
+            {
+                if (!MacNative.IsMacOS) return;
+                ProcessingConfiguration = 0x1808;
+                CommandConfiguration = 0x1808 + 2 * 0x7C0;
+                PersonalOpposition = 0x16E8;
+                PositionOppositionCount = 0x1738;
+                PositionOppositionEntries = 0x173C;
+            }
+        }
+
+        public static partial class Configuration
+        {
+            static Configuration()
+            {
+                if (!MacNative.IsMacOS) return;
+                Size = 0x7C0;
+                InPossession = 0x120;
+                OutOfPossession = 0x440;
+                InPossessionOverrides = 0x760;
+                OutOfPossessionOverrides = 0x778;
+                PhaseSlotMapping = 0x7B4;
+            }
+        }
+
+        /// <summary>
+        /// libc++ std::map, used on macOS: the map is { begin node, end node (whose left
+        /// child is the root), size }; a node is { left, right, parent, is_black, value }.
+        /// Leaves are null rather than a sentinel. The value (person key, then the
+        /// positions vector) sits at the same offsets as in the MSVC node.
+        /// </summary>
+        public static class MacOverrideTree
+        {
+            public const int Begin = 0;
+            public const int Root = 8;
+            public const int Size = 0x10;
+            public const int NodeSize = 0x40;
+            public const int Left = 0;
+            public const int Right = 8;
+            public const int PersonKey = 0x20;
+            public const int Positions = 0x28;
         }
     }
 }

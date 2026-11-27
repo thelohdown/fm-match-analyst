@@ -32,7 +32,10 @@ internal static class MacNative
     private static int[]? _functionStarts;
     private static uint? _taskSelf;
 
-    public static bool IsMacOS => OperatingSystem.IsMacOS();
+    // FMMATCHLENS_MAC_OFFSETS=1 forces the macOS layout elsewhere, so mac/offline can run the
+    // capture's read paths against macOS probe snapshots on Linux. The game never sets it.
+    public static bool IsMacOS { get; } = OperatingSystem.IsMacOS() ||
+        Environment.GetEnvironmentVariable("FMMATCHLENS_MAC_OFFSETS") == "1";
 
     /// <summary>One loaded image whose path contains the search text.</summary>
     internal readonly record struct LoadedImage(nint Header, string Path);

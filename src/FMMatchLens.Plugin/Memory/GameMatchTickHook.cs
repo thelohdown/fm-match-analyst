@@ -1755,13 +1755,13 @@ internal sealed partial class GameMatchTickHook : IDisposable
 
     private IReadOnlyDictionary<string, int>? ReadPlayerPositionFamiliarities(nint person)
     {
-        if (MacNative.IsMacOS) return null; // the player record is not mapped on macOS yet
         if (person == default)
         {
             return null;
         }
 
         var actualPlayer = person + Offsets.Person.ActualPlayerDelta;
+        if (MacNative.IsMacOS && !MacPlayerRecordLooksRight(actualPlayer)) return null;
         var familiarities = new Dictionary<string, int>(PlayerPositionFamiliarity.Labels.Length, StringComparer.Ordinal);
         for (var index = 0; index < PlayerPositionFamiliarity.Labels.Length; index++)
         {
@@ -1796,13 +1796,15 @@ internal sealed partial class GameMatchTickHook : IDisposable
 
     private PlayerProfile? ReadPlayerProfile(nint person, nint fullContract)
     {
-        if (MacNative.IsMacOS) return null; // the player record is not mapped on macOS yet
         if (person == default)
         {
             return null;
         }
 
+        // macOS: a record that does not look like a player's leaves its fields null (a null
+        // base makes those reads fail).
         var actualPlayer = person + Offsets.Person.ActualPlayerDelta;
+        if (MacNative.IsMacOS && !MacPlayerRecordLooksRight(actualPlayer)) actualPlayer = default;
         _memoryReader.TryReadPointer(person + Offsets.Person.Nation, out var nation);
         var bodyType = _memoryReader.TryReadByte(actualPlayer + Offsets.ActualPlayer.BodyType, out var rawBodyType) &&
                        rawBodyType is >= 1 and <= 5
@@ -1825,7 +1827,8 @@ internal sealed partial class GameMatchTickHook : IDisposable
             ReadOptionalByte(person + Offsets.Person.YouthApps),
             ReadOptionalByte(person + Offsets.Person.YouthGoals),
             ReadPositiveInt16(actualPlayer + Offsets.ActualPlayer.MatchSharpness),
-            ReadPlayerSeasonStats(actualPlayer));
+            // macOS: the season stats object is not mapped yet.
+            MacNative.IsMacOS ? null : ReadPlayerSeasonStats(actualPlayer));
         return profile.WeeklyWage.HasValue || profile.HeightCm.HasValue || profile.Condition.HasValue || profile.MatchSharpness.HasValue || profile.Morale.HasValue ||
                profile.DateOfBirth is not null || profile.NationUid.HasValue || profile.BodyType.HasValue || profile.GuideValueGbp.HasValue ||
                profile.InternationalApps.HasValue || profile.YouthApps.HasValue || profile.SeasonStats is not null
@@ -1925,13 +1928,18 @@ internal sealed partial class GameMatchTickHook : IDisposable
 
     private PlayerAttributes? ReadPlayerAttributes(nint person)
     {
-        if (MacNative.IsMacOS) return null; // the player record is not mapped on macOS yet
         if (person == default)
         {
             return null;
         }
 
         var player = person + Offsets.Person.ActualPlayerDelta;
+        if (MacNative.IsMacOS)
+        {
+            var looksRight = MacPlayerRecordLooksRight(player);
+            LogMacPlayerRecordOnce(person, looksRight);
+            if (!looksRight) return null;
+        }
         var attributes = new PlayerAttributes(
             new Dictionary<string, int>
             {
@@ -3474,6 +3482,7 @@ internal sealed partial class GameMatchTickHook : IDisposable
             if (context == 0) return new("unavailable", null, null, null, null, players.ToArray());
             var processing = ReadConfiguration(context + Tactics.Context.ProcessingConfiguration);
             var command = ReadConfiguration(context + Tactics.Context.CommandConfiguration);
+            if (MacNative.IsMacOS) MacTacticsDiagnostics.LogOnce(context, side, processing, command, players);
             var personal = ReadBytes(context + Tactics.Context.PersonalOpposition, Tactics.PersonalOppositionCount * Tactics.PersonalOppositionRecordSize);
             TacticalOppositionPosition[]? positions = null;
             if (_reader.TryReadByte(context + Tactics.Context.PositionOppositionCount, out var count) && count <= Tactics.PositionOppositionCapacity &&
@@ -3499,6 +3508,11 @@ internal sealed partial class GameMatchTickHook : IDisposable
         private TacticalConfiguration? ReadConfiguration(nint address)
         {
             if (!VirtualMemory.IsReadable(address, Tactics.Configuration.Size)) return null;
+            // The macOS layout is derived from snapshots; refuse a block whose formations
+            // do not decode rather than report a made-up tactic.
+            if (MacNative.IsMacOS && (!MacTacticsDiagnostics.LooksLikeFormation(address + Tactics.Configuration.InPossession) ||
+                                      !MacTacticsDiagnostics.LooksLikeFormation(address + Tactics.Configuration.OutOfPossession)))
+                return null;
             byte[]? name = null;
             var text = Marshal.ReadIntPtr(address + Tactics.Configuration.Name);
             if (text == default) name = Array.Empty<byte>();
@@ -3539,6 +3553,7 @@ internal sealed partial class GameMatchTickHook : IDisposable
 
         private TacticalPersonalOverride[]? ReadOverrides(nint tree)
         {
+            if (MacNative.IsMacOS) return ReadMacOverrides(tree);
             if (!_reader.TryReadPointer(tree + Tactics.OverrideTree.Header, out var header) || header == 0 ||
                 !_reader.TryReadUInt64(tree + Tactics.OverrideTree.Count, out var declaredCount) || declaredCount > Tactics.PersonalOppositionCount ||
                 !VirtualMemory.IsReadable(header, Tactics.OverrideTree.HeaderSize)) return null;
@@ -3556,6 +3571,36 @@ internal sealed partial class GameMatchTickHook : IDisposable
                 result.Add(new(unchecked((uint)Marshal.ReadInt32(node + Tactics.OverrideTree.PersonKey)), ReadPositionsDirect(begin, count)));
                 pending.Push(Marshal.ReadIntPtr(node + Tactics.OverrideTree.Left));
                 pending.Push(Marshal.ReadIntPtr(node + Tactics.OverrideTree.Right));
+            }
+            if ((ulong)result.Count != declaredCount) return null;
+            return result.OrderBy(value => value.PersonKey).ToArray();
+        }
+
+        /// <summary>Walks a libc++ std::map of personal overrides (see Offsets.Tactics.MacOverrideTree).</summary>
+        private TacticalPersonalOverride[]? ReadMacOverrides(nint map)
+        {
+            if (!VirtualMemory.IsReadable(map, 0x18) ||
+                !_reader.TryReadUInt64(map + Tactics.MacOverrideTree.Size, out var declaredCount) || declaredCount > Tactics.PersonalOppositionCount)
+                return null;
+            var endNode = map + Tactics.MacOverrideTree.Root;
+            // nint, not IntPtr: the plugin targets net6.0, where IntPtr has no == with an int.
+            nint root = Marshal.ReadIntPtr(endNode);
+            nint begin = Marshal.ReadIntPtr(map + Tactics.MacOverrideTree.Begin);
+            // An empty map points its begin at its own end node and has no root.
+            if (declaredCount == 0) return root == 0 && begin == endNode ? Array.Empty<TacticalPersonalOverride>() : null;
+            var result = new List<TacticalPersonalOverride>();
+            var pending = new Stack<nint>();
+            var visited = new HashSet<nint>();
+            pending.Push(root);
+            while (pending.Count != 0)
+            {
+                var node = pending.Pop();
+                if (node == 0) continue;
+                if (!visited.Add(node) || visited.Count > Tactics.PersonalOppositionCount || !VirtualMemory.IsReadable(node, Tactics.MacOverrideTree.NodeSize)) return null;
+                if (!TryVector(node + Tactics.MacOverrideTree.Positions, Tactics.Position.Size, Tactics.FormationSlotCount, out var positions, out var count)) return null;
+                result.Add(new(unchecked((uint)Marshal.ReadInt32(node + Tactics.MacOverrideTree.PersonKey)), ReadPositionsDirect(positions, count)));
+                pending.Push(Marshal.ReadIntPtr(node + Tactics.MacOverrideTree.Left));
+                pending.Push(Marshal.ReadIntPtr(node + Tactics.MacOverrideTree.Right));
             }
             if ((ulong)result.Count != declaredCount) return null;
             return result.OrderBy(value => value.PersonKey).ToArray();

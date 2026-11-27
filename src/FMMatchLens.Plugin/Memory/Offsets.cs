@@ -335,7 +335,7 @@ internal static partial class Offsets
 
     public static partial class MatchPlayer
     {
-        public const int OppositionPositionKey = 0x1278;
+        public static readonly int OppositionPositionKey = 0x1278;
         public static readonly int TacticalRosterSlot = 0x23C7;
         public static readonly int TacticalFormationSlot = 0x23F1;
         public static readonly int Person = 0x28;
@@ -425,7 +425,7 @@ internal static partial class Offsets
 
     public static partial class Person
     {
-        public const int ActualPlayerDelta = -0x288;
+        public static readonly int ActualPlayerDelta = -0x288;
         public const int Uid = 0x0C;
         // Legacy candidates: neither a gender bit/mask nor its encoding has
         // been verified for FM27. Do not infer gender from these raw bytes.
@@ -755,36 +755,36 @@ internal static partial class Offsets
         public const int HeadersLost = 0x76; // u16
     }
 
-    public static class Tactics
+    public static partial class Tactics
     {
         public const int FormationSlotCount = 11;
         public const int PersonalOppositionCount = 26;
         public const int PersonalOppositionRecordSize = 3;
         public const int PositionOppositionCapacity = 25;
 
-        public static class Context
+        public static partial class Context
         {
-            public const int ProcessingConfiguration = 0x1820;
-            public const int CommandConfiguration = 0x2770;
-            public const int PersonalOpposition = 0x1700;
-            public const int PositionOppositionCount = 0x1750;
-            public const int PositionOppositionEntries = 0x1754;
+            public static readonly int ProcessingConfiguration = 0x1820;
+            public static readonly int CommandConfiguration = 0x2770;
+            public static readonly int PersonalOpposition = 0x1700;
+            public static readonly int PositionOppositionCount = 0x1750;
+            public static readonly int PositionOppositionEntries = 0x1754;
         }
 
-        public static class Configuration
+        public static partial class Configuration
         {
-            public const int Size = 0x7A8;
+            public static readonly int Size = 0x7A8;
             public const int TeamInstructions = 0xE0;
             public const int TeamInstructionsSize = 16;
             public const int Name = 0xF8;
             public const int StyleKey = 0x100;
             public const int AdditionalState = 0x104;
             public const int Mentality = 0x105;
-            public const int InPossession = 0x118;
-            public const int OutOfPossession = 0x438;
-            public const int InPossessionOverrides = 0x758;
-            public const int OutOfPossessionOverrides = 0x768;
-            public const int PhaseSlotMapping = 0x79C;
+            public static readonly int InPossession = 0x118;
+            public static readonly int OutOfPossession = 0x438;
+            public static readonly int InPossessionOverrides = 0x758;
+            public static readonly int OutOfPossessionOverrides = 0x768;
+            public static readonly int PhaseSlotMapping = 0x79C;
         }
 
         public static class Position
