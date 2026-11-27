@@ -1,6 +1,29 @@
-# FM Match Analyst
+<p align="center">
+  <img src="../frontend/public/icon.svg" alt="FM Match Analyst icon" width="112" height="112">
+</p>
 
-An AI match analyst for Football Manager 27. Play as normal, pause a match, and ask
+<h1 align="center">FM Match Analyst</h1>
+
+<p align="center">
+  An AI match analyst for Football Manager 27, built on FMMatchLens
+</p>
+
+<p align="center">
+  <img alt="Football Manager 27.1" src="https://img.shields.io/badge/Football%20Manager-27.1-7c3aed">
+  <img alt="macOS, Apple Silicon" src="https://img.shields.io/badge/platform-macOS%20(Apple%20Silicon)-2563eb">
+  <img alt="Status: alpha" src="https://img.shields.io/badge/status-alpha-f59e0b">
+</p>
+
+<p align="center">
+  <a href="../mac/GETTING-STARTED.md">Getting Started</a> ·
+  <a href="#how-it-fits-together">How It Fits Together</a> ·
+  <a href="#what-it-can-see-on-fm-271">What It Can See</a> ·
+  <a href="#built-on-fmmatchlens">Built on FMMatchLens</a>
+</p>
+
+---
+
+Play Football Manager 27 as normal, pause a match, and ask
 Claude what is going on and what to change: "How is my match going?", "Did that change
 work?", "Who should I take off?". At full time it builds a printable post-match report.
 
