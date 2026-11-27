@@ -1,6 +1,6 @@
 # FM Match Analyst on a Mac: getting started
 
-This fork runs FMMatchLens on macOS and adds an AI match analyst. You play Football
+This project runs FMMatchLens on macOS and adds an AI match analyst. You play Football
 Manager 27 as normal; when you pause a match you can ask Claude what is going on and
 what to change. It reads the match as it is played and never changes anything in the game.
 

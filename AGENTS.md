@@ -1,4 +1,8 @@
-# FMMatchLens development
+# FM Match Analyst development
+
+This repository is FM Match Analyst: FMMatchLens (osnsyc/FMMatchLens) ported to macOS,
+plus an MCP match analyst. `main` merges upstream; keep upstream-owned files close to
+upstream so those merges stay easy.
 
 ## Layout
 
@@ -9,7 +13,9 @@
 - `local/`: ignored game files, captures, archives and logs; do not commit these.
 
 Read `mac/README.md` for the port's status and `mcp/README.md` for analyst setup.
-The root README describes the upstream Windows installation.
+`mac/GETTING-STARTED.md` is the guide for users. The root `README.md` is upstream's and
+describes the Windows installation; GitHub shows `.github/README.md` as this
+repository's front page.
 
 ## Working rules
 

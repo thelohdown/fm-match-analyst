@@ -220,8 +220,9 @@ Environment: `FMMATCHLENS_API` (default `http://127.0.0.1:16726`),
 ## Known gaps
 
 - On macOS FMMatchLens does not capture morale or season stats yet. Tactics and
-  attributes are captured from FM27 27.0.1 on (matches recorded before that have
-  neither, and zones are inferred from where players stood).
+  attributes are captured on FM27 27.0.1 and 27.1. A match recorded by a plugin
+  build that did not fit its FM version has neither: the analyst says so, and
+  infers zones from where players stood.
 - Pressing is measured from events (ppda, high regains), not from how close
   players get to the ball, so it is a comparison between teams and spells rather
   than an absolute.

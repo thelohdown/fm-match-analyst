@@ -1,7 +1,8 @@
-# FMMatchLens on macOS (local port)
+# FMMatchLens on macOS
 
-This branch (`macos-port`) is a local attempt to run FMMatchLens on FM27 on
-Apple Silicon Macs. Upstream FMMatchLens supports Windows only.
+How FMMatchLens runs on FM27 on Apple Silicon Macs, and what has been verified.
+Upstream FMMatchLens supports Windows only. To install and use it, see
+[GETTING-STARTED.md](GETTING-STARTED.md); this file is for working on the port.
 
 ## Status
 
