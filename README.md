@@ -28,6 +28,8 @@
 
 ---
 
+> **On a Mac, or want the AI match analyst?** This fork runs FMMatchLens on macOS (Apple Silicon, FM 27.1) and adds an analyst you can ask about your match in Claude. Start with [mac/GETTING-STARTED.md](mac/GETTING-STARTED.md).
+
 FMMatchLens reads Football Manager match data at runtime, exposes local HTTP and WebSocket endpoints, and presents live match information in a browser dashboard. Data stays on your computer by default and can also be saved as `.fmlens` archives for offline replay.
 
 ## Key features
