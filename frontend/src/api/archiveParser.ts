@@ -22,7 +22,7 @@ import {
 const magic = "FMLENS2\0"
 const archiveStructureMajor = 2
 const firstSupportedStructureMinor = 1
-const archiveStructureMinor = 10
+const archiveStructureMinor = 12
 const legacy21FramePayloadMarker = 1
 const legacy21BlockStructure = 1
 const metadataRecord = 1
@@ -38,8 +38,10 @@ const legacyTeamFields = (1n << 23n) - 1n
 const allTeamFields = (1n << 25n) - 1n
 const legacyPlayerFields = (1n << 39n) - 1n
 const version27PlayerFields = (1n << 42n) - 1n
-const allPlayerFields = (1n << 43n) - 1n
+const version28PlayerFields = (1n << 43n) - 1n
+const allPlayerFields = (1n << 44n) - 1n
 const compactPlayerFields = allPlayerFields & ~(1n << 36n)
+const version28CompactPlayerFields = version28PlayerFields & ~(1n << 36n)
 const version27CompactPlayerFields = version27PlayerFields & ~(1n << 36n)
 
 type ArchiveHeader = {
@@ -263,13 +265,15 @@ function readFrames(
 ) {
   const reader = new ArchiveBufferReader(payload)
   const supportedTeamFields = structureMinor >= 6 ? allTeamFields : legacyTeamFields
-  const supportedPlayerFields = structureMinor >= 8
+  const supportedPlayerFields = structureMinor >= 12
     ? compactPlayerFields
-    : structureMinor >= 7
-      ? version27CompactPlayerFields
-      : structureMinor >= 6
-        ? version27PlayerFields
-        : legacyPlayerFields
+    : structureMinor >= 8
+      ? version28CompactPlayerFields
+      : structureMinor >= 7
+        ? version27CompactPlayerFields
+        : structureMinor >= 6
+          ? version27PlayerFields
+          : legacyPlayerFields
   if (structureMinor === 1 && reader.readByte() !== legacy21FramePayloadMarker) {
     throw new ArchiveError("Invalid 2.1 frame payload marker")
   }
@@ -500,6 +504,10 @@ function readRatingResearch(
       specialW2F: state.specialW2F, specialW30: state.specialW30, specialW31: state.specialW31,
       internalScore: state.internalScore,
       specialConditionA: state.specialConditionA, specialConditionB: state.specialConditionB,
+      teamAEventCounterCandidate: state.teamAEventCounterCandidate,
+      teamBEventCounterCandidate: state.teamBEventCounterCandidate,
+      teamAEventAdjustmentCandidate: state.teamAEventAdjustmentCandidate,
+      teamBEventAdjustmentCandidate: state.teamBEventAdjustmentCandidate,
       inPossessionRoleDuty: state.inPossessionRoleDuty,
       outOfPossessionRoleDuty: state.outOfPossessionRoleDuty,
       totalEligibleDuration: state.totalEligibleDuration,
@@ -626,6 +634,11 @@ function readPlayerFields(reader: ArchiveBufferReader, prior: RealtimePlayer, ma
     if (bit === 37 && has(36)) result.distanceM = reader.readFloatXor(result.distanceM ?? 0)
     if (has(bit)) Object.assign(result, { [field]: reader.readVarInt() })
   }
+  if (has(43)) {
+    const morale = reader.readVarInt()
+    if (morale !== -1 && (morale < 1 || morale > 20)) throw new ArchiveError("Match morale must be 1..20 or unavailable (-1)")
+    result.morale = morale === -1 ? undefined : morale
+  }
   return result
 }
 
@@ -709,9 +722,10 @@ function readMetadata(payload: Uint8Array, header: ArchiveHeader) {
   let halfPitchWidth: number | undefined
   let halfPitchLength: number | undefined
   let competition: RealtimeMatchMetadata["competition"]
+  let pomUid = 0
   if (!reader.atEnd) {
     const extensionFlags = reader.readByte()
-    const allowedExtensionFlags = header.structureMinor >= 6 ? 0x0f : header.structureMinor >= 5 ? 0x07 : 0x03
+    const allowedExtensionFlags = header.structureMinor >= 11 ? 0x1f : header.structureMinor >= 6 ? 0x0f : header.structureMinor >= 5 ? 0x07 : 0x03
     if (extensionFlags === 0 || (extensionFlags & ~allowedExtensionFlags) !== 0) throw new ArchiveError("Metadata contains unknown extension fields")
     if ((extensionFlags & 0x01) !== 0) matchDate = reader.readString()
     if ((extensionFlags & 0x02) !== 0) {
@@ -723,6 +737,7 @@ function readMetadata(payload: Uint8Array, header: ArchiveHeader) {
       halfPitchLength = readPitchHalf(reader)
     }
     if ((extensionFlags & 0x08) !== 0) competition = readCompetitionMetadata(reader, strings)
+    if ((extensionFlags & 0x10) !== 0) pomUid = reader.readUint32()
   }
   if (!reader.atEnd) throw new ArchiveError("Metadata contains trailing bytes")
   const metadata: RealtimeMatchMetadata = {
@@ -733,6 +748,7 @@ function readMetadata(payload: Uint8Array, header: ArchiveHeader) {
     halfPitchWidth,
     halfPitchLength,
     competition,
+    pomUid,
     home,
     away,
     players,
@@ -790,15 +806,17 @@ function readMetadataDelta(payload: Uint8Array, header: ArchiveHeader, previous:
   let halfPitchWidth = previous.halfPitchWidth
   let halfPitchLength = previous.halfPitchLength
   let competition = previous.competition
+  let pomUid = previous.pomUid ?? 0
   if (header.structureMinor >= 5) {
     const extensionFlags = reader.readByte()
-    const allowedExtensionFlags = header.structureMinor >= 6 ? 0x03 : 0x01
+    const allowedExtensionFlags = header.structureMinor >= 11 ? 0x07 : header.structureMinor >= 6 ? 0x03 : 0x01
     if ((extensionFlags & ~allowedExtensionFlags) !== 0) throw new ArchiveError("Metadata delta contains unknown extension fields")
     if ((extensionFlags & 0x01) !== 0) {
       halfPitchWidth = readPitchHalf(reader)
       halfPitchLength = readPitchHalf(reader)
     }
     if ((extensionFlags & 0x02) !== 0) competition = readCompetitionMetadata(reader, strings)
+    if ((extensionFlags & 0x04) !== 0) pomUid = reader.readUint32()
   }
   if (!reader.atEnd) throw new ArchiveError("Metadata delta contains trailing bytes")
   const metadata: RealtimeMatchMetadata = {
@@ -809,6 +827,7 @@ function readMetadataDelta(payload: Uint8Array, header: ArchiveHeader, previous:
     halfPitchWidth,
     halfPitchLength,
     competition,
+    pomUid,
     home,
     away,
     players,

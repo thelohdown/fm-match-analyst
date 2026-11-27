@@ -107,8 +107,16 @@ export type RealtimePlayer = PlayerStats & {
   ratingContribution?: RatingContribution
 }
 
+/** Raw per-player team context used by terminal goal-event awards. */
+export type RatingEventContext = {
+  teamAEventCounterCandidate: number
+  teamBEventCounterCandidate: number
+  teamAEventAdjustmentCandidate: number
+  teamBEventAdjustmentCandidate: number
+}
+
 /** Compact binary-archive input retained until its frame is displayed. */
-export type ArchiveRatingInputs = {
+export type ArchiveRatingInputs = Partial<RatingEventContext> & {
   /** The 36 archive-only bytes not already represented by RealtimePlayer stats. */
   statsPacked: Uint8Array
   internalW25: number
@@ -130,7 +138,7 @@ export type ArchiveRatingInputs = {
   ratingEvents: Uint8Array[]
 }
 
-export type RealtimeRatingInputs = {
+export type RealtimeRatingInputs = Partial<RatingEventContext> & {
   /** Base64-encoded 36-byte rating-only stat vector. */
   statsPacked: string
   internalW25: number
@@ -330,6 +338,8 @@ export type RealtimeCompetitionMetadata = {
 }
 
 export type RealtimeMatchMetadata = {
+  /** Player of the match Person UID; zero when absent or not finalized. */
+  pomUid?: number
   matchId: string
   startedUnixMilliseconds: number
   capturedTick: number
@@ -644,6 +654,8 @@ export function useRealtimeMatch(
     let historyLastTick = -1
     let historyLastSequence = -1
     let isFullTime = false
+    let reportDataReady = false
+    let metadataSynced = false
     let formations = new FormationTimeline()
     let publishedSnapshot: MatchSnapshot | undefined
     let derived = new HistoricalDerivations()
@@ -653,6 +665,7 @@ export function useRealtimeMatch(
 
     const fetchMetadata = async () => {
       const generation = connectionGeneration
+      metadataSynced = false
       try {
         const response = await liveFetch(`${apiBase}/api/match/meta`, {
           cache: "no-store",
@@ -670,6 +683,9 @@ export function useRealtimeMatch(
         const changed =
           JSON.stringify(next) !== JSON.stringify(metadata.current)
         if (changed) metadata.current = next
+        metadataSynced = Boolean(
+          next?.matchId && next.matchId === latestFrame?.matchId
+        )
         return changed
       } catch {
         // Metadata is retried on future snapshots.
@@ -701,7 +717,13 @@ export function useRealtimeMatch(
           undefined,
           liveRatingContributions
         )
-        publishedSnapshot = { ...publishedSnapshot, isFullTime }
+        publishedSnapshot = {
+          ...publishedSnapshot,
+          isFullTime,
+          reportDataReady: reportDataReady &&
+            historyLastTick === frame.tick &&
+            historyLastSequence === frame.sequence,
+        }
         setMatch(publishedSnapshot)
       }
       if (lowPriority) startTransition(commit)
@@ -717,6 +739,8 @@ export function useRealtimeMatch(
       historyLastTick = -1
       historyLastSequence = -1
       isFullTime = false
+      reportDataReady = false
+      metadataSynced = false
       formations = new FormationTimeline()
       liveRatingInputs = new Map()
       historyRatingInputs = new Map()
@@ -725,6 +749,18 @@ export function useRealtimeMatch(
       derived = new HistoricalDerivations()
       historical = derived.snapshot(0)
       if (metadata.current?.matchId !== matchId) metadata.current = null
+    }
+
+    const applyTimelineStatus = (status: { matchId?: string; status: string }) => {
+      if (
+        status.status !== "ended" ||
+        !status.matchId ||
+        status.matchId !== latestFrame?.matchId
+      )
+        return
+      motionSource?.setStatus("ended")
+      if (isFullTime) return
+      isFullTime = true
     }
 
     const syncHistory = async () => {
@@ -738,9 +774,11 @@ export function useRealtimeMatch(
       syncing = true
       syncPending = false
       try {
+        const fullTimeBeforeMetadata = isFullTime
         const metadataChanged = await fetchMetadata()
         let keepLoading = true
         let changed = false
+        let completedFrame: RealtimeFrame | undefined
         while (!disposed && enabledRef.current && keepLoading) {
           // Re-read the last tick: the plugin can replace it with its final frame.
           const fromTick = Math.max(0, historyLastTick)
@@ -759,19 +797,7 @@ export function useRealtimeMatch(
           )
             return
           if (slice.matchId) resetFor(slice.matchId)
-          if (
-            slice.status === "ended" &&
-            slice.matchId === latestFrame?.matchId &&
-            !isFullTime
-          ) {
-            isFullTime = true
-            changed = true
-          }
-          if (
-            slice.status === "ended" &&
-            slice.matchId === latestFrame?.matchId
-          )
-            motionSource?.setStatus("ended")
+          applyTimelineStatus(slice)
           const hydratedFrames = slice.frames.map((frame) =>
             hydrateRealtimeRatingFrame(
               historyTactics.hydrate(frame),
@@ -802,10 +828,39 @@ export function useRealtimeMatch(
             historical = derived.snapshot(historyLastTick)
             publish(latestFrame, true)
           }
+          if (slice.status === "ended" && !keepLoading)
+            completedFrame = hydratedFrames.at(-1)
         }
+        if (disposed || generation !== connectionGeneration || !enabledRef.current)
+          return
+        if (completedFrame && completedFrame.matchId === latestFrame?.matchId) {
+          // The final replacement can arrive over HTTP without another WS tick.
+          if (
+            completedFrame.tick > latestFrame.tick ||
+            (completedFrame.tick === latestFrame.tick &&
+              completedFrame.sequence >= latestFrame.sequence)
+          )
+            latestFrame = completedFrame
+        }
+        const nextReportDataReady = Boolean(
+          completedFrame &&
+          completedFrame.matchId === latestFrame?.matchId &&
+          completedFrame.tick === latestFrame.tick &&
+          completedFrame.sequence === latestFrame.sequence &&
+          // A sync that began before full time may have fetched pre-POM metadata.
+          // Wait for the next normal sync; no report-only request is necessary.
+          fullTimeBeforeMetadata &&
+          metadataSynced &&
+          metadata.current?.matchId === latestFrame.matchId
+        )
+        const reportReadinessChanged = reportDataReady !== nextReportDataReady
+        reportDataReady = nextReportDataReady
         if (changed)
           historical = derived.snapshot(latestFrame?.tick ?? historyLastTick)
-        if (changed || metadataChanged) publish(latestFrame, true)
+        if (
+          changed || metadataChanged || reportReadinessChanged ||
+          publishedSnapshot?.isFullTime !== isFullTime
+        ) publish(latestFrame, true)
       } catch (error) {
         // WebSocket still keeps the current score/player state live. The next
         // low-frequency sync retries the missing historical range.
@@ -957,6 +1012,14 @@ export function toMatchSnapshot(
   const awayClubUid = metadata?.away.clubUid
 
   const next: MatchSnapshot = {
+    competition: metadata?.competition ? {
+      uid: metadata.competition.uid,
+      name: metadata.competition.name,
+      logoUrl: allowLocalAssets && metadata.competition.uid != null
+        ? graphicsAssetUrl("comp", metadata.competition.uid, "logo")
+        : archivedAssetUrl(metadata.competition.logoPath),
+    } : undefined,
+    pomUid: metadata?.pomUid ?? 0,
     tactics: cachedTacticalSnapshot(frame.tactics),
     matchId: frame.matchId,
     pitchDimensions: toPitchDimensions(metadata),
@@ -1003,12 +1066,14 @@ export function toMatchSnapshot(
           : calculatePlayerRatingContribution(
               player,
               frame.ratingModel,
-              ratingConfiguration
+              ratingConfiguration,
+              frame.tick
             ))
       const resolveRatingContribution = ratingResolverCache?.resolverFor(
         player,
         frame.ratingModel,
-        ratingConfiguration
+        ratingConfiguration,
+        frame.tick
       )
       const projected = playerFormation(
         frame.tactics,
@@ -1060,6 +1125,7 @@ export class RatingContributionResolverCache {
     player: RealtimePlayer,
     model: RealtimeRatingModel | undefined,
     configuration?: RatingWeightConfiguration,
+    currentTick?: number,
   ) {
     if (player.ratingContribution) return () => player.ratingContribution
     if (!model || !configuration || (!player.archiveRatingInputs && !player.ratingInputs)) return undefined
@@ -1069,6 +1135,7 @@ export class RatingContributionResolverCache {
       && previous.input === (player.archiveRatingInputs ?? player.ratingInputs)
       && previous.configuration === configuration
       && sameRatingModel(previous.model, model)
+      && previous.eventTick === ratingEventTick(model, currentTick)
       && sameRatingPlayerSource(previous.player, player)
     ) return previous.resolve
 
@@ -1076,7 +1143,7 @@ export class RatingContributionResolverCache {
     let hasCalculated = false
     const resolve = () => {
       if (!hasCalculated) {
-        calculated = calculatePlayerRatingContribution(player, model, configuration)
+        calculated = calculatePlayerRatingContribution(player, model, configuration, currentTick)
         hasCalculated = true
       }
       return calculated
@@ -1086,6 +1153,7 @@ export class RatingContributionResolverCache {
       configuration,
       model,
       player,
+      eventTick: ratingEventTick(model, currentTick),
       resolve,
     })
     return resolve
@@ -1093,11 +1161,16 @@ export class RatingContributionResolverCache {
 }
 
 type RatingResolverEntry = {
+  eventTick?: number
   input: ArchiveRatingInputs | RealtimeRatingInputs
   configuration: RatingWeightConfiguration
   model: RealtimeRatingModel
   player: RealtimePlayer
   resolve: () => RatingContribution | undefined
+}
+
+function ratingEventTick(model: RealtimeRatingModel, tick?: number) {
+  return (model.ratingBaseCondition & 4) !== 0 ? tick : undefined
 }
 
 function sameRatingModel(
@@ -1167,7 +1240,7 @@ export function calculateFrameRatingContributions(
   ratingConfiguration?: RatingWeightConfiguration,
 ): readonly (RatingContribution | undefined)[] {
   return frame.players.map((player) =>
-    calculatePlayerRatingContribution(player, frame.ratingModel, ratingConfiguration)
+    calculatePlayerRatingContribution(player, frame.ratingModel, ratingConfiguration, frame.tick)
   )
 }
 
@@ -1175,17 +1248,18 @@ function calculatePlayerRatingContribution(
   player: RealtimePlayer,
   model: RealtimeRatingModel | undefined,
   ratingConfiguration?: RatingWeightConfiguration,
+  currentTick?: number,
 ) {
   if (player.ratingContribution) return player.ratingContribution
   if (!model || !ratingConfiguration) return undefined
   if (player.archiveRatingInputs) {
     return calculateRatingContribution(
-      decodeArchiveRatingInputs(player.archiveRatingInputs, player, model, ratingConfiguration)
+      decodeArchiveRatingInputs(player.archiveRatingInputs, player, model, ratingConfiguration, currentTick)
     )
   }
   if (player.ratingInputs) {
     return calculateRatingContribution(
-      decodeLiveRatingInputs(player.ratingInputs, player, model, ratingConfiguration)
+      decodeLiveRatingInputs(player.ratingInputs, player, model, ratingConfiguration, currentTick)
     )
   }
   return undefined
@@ -1853,6 +1927,7 @@ function toPlayer(
       distanceM: player.distanceM,
       overallPhysicalCondition: player.overallPhysicalCondition,
       matchSharpness: player.matchSharpness,
+      morale: player.morale ?? undefined,
     },
   }
 }

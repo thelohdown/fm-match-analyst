@@ -128,7 +128,7 @@ export const TacticalBoard = memo(function TacticalBoard({
   const pitchDimensions = resolvePitchDimensions(match.pitchDimensions)
   const pitchStyle = {
     "--pitch-aspect-ratio": pitchDimensions.length / pitchDimensions.width,
-    "--pitch-frame-gap": `${TACTICAL_EVENT_OVERSCAN_PX}px`,
+    "--tactical-pitch-gutter": `${TACTICAL_EVENT_OVERSCAN_PX}px`,
   } as CSSProperties
   const { settings, resolvedScheme } = useTheme()
   const [mode, setMode] = useStoredChoice<"events" | "liveMotion">(
@@ -142,6 +142,7 @@ export const TacticalBoard = memo(function TacticalBoard({
   const motionAvailable = isLiveSource || replayMotionSource != null
   const liveMode = mode === "liveMotion" && motionAvailable
   const [pitchControlEnabled, setPitchControlEnabled] = useState(false)
+  const [convexHullEnabled, setConvexHullEnabled] = useState(false)
   const [showNumbers, setShowNumbers] = useState(true)
   const [selectedShotId, setSelectedShotId] = useState<string | null>(null)
   const [selectedMetrics, setSelectedMetrics] = useStoredPreference(
@@ -301,7 +302,8 @@ export const TacticalBoard = memo(function TacticalBoard({
       tokens: cssVizTokens(
         settings.presetId,
         resolvedScheme,
-        settings.colorVision
+        settings.colorVision,
+        settings.contrast
       ),
     }),
     [
@@ -310,6 +312,7 @@ export const TacticalBoard = memo(function TacticalBoard({
       match.home.color,
       match.home.colorSource?.goalkeeperShirtBackgroundColor,
       resolvedScheme,
+      settings.contrast,
       settings.colorVision,
       settings.presetId,
       showNumbers,
@@ -341,16 +344,16 @@ export const TacticalBoard = memo(function TacticalBoard({
 
   return (
     <section className="flex h-full min-h-0 flex-col overflow-hidden">
-      <CardHeader className="flex shrink-0 flex-row items-center gap-3 border-b px-4 py-2">
+      <CardHeader className="tactical-header-controls flex shrink-0 flex-row items-center gap-3 px-4 py-2">
         <CardTitle className="shrink-0 text-sm font-semibold @max-[420px]/card-header:hidden">
           {t("panels.dataMap")}
         </CardTitle>
 
         <Button
           type="button"
-          variant="outline"
+          variant="control"
           size="sm"
-          className="h-auto rounded px-2 py-1 text-[10px] active:translate-y-px"
+          className="shrink-0 px-1.5 text-[10px]"
           disabled={!motionAvailable}
           aria-pressed={liveMode}
           onClick={() => {
@@ -369,13 +372,25 @@ export const TacticalBoard = memo(function TacticalBoard({
         {liveMode && (
           <Button
             type="button"
-            variant="outline"
+            variant="control"
             size="sm"
             aria-pressed={pitchControlEnabled}
-            className={`h-auto rounded px-2 py-1 text-[10px] active:translate-y-px ${pitchControlEnabled ? "border-primary bg-primary/15 text-primary" : ""}`}
+            className="shrink-0 px-1.5 text-[10px]"
             onClick={() => setPitchControlEnabled((current) => !current)}
           >
             {t("dataMap.pitchControl.label")}
+          </Button>
+        )}
+        {liveMode && (
+          <Button
+            type="button"
+            variant="control"
+            size="sm"
+            aria-pressed={convexHullEnabled}
+            className="shrink-0 px-1.5 text-[10px]"
+            onClick={() => setConvexHullEnabled((current) => !current)}
+          >
+            {t("dataMap.convexHull.label")}
           </Button>
         )}
         {liveMode && (
@@ -415,7 +430,7 @@ export const TacticalBoard = memo(function TacticalBoard({
         )}
 
         {!liveMode && (
-          <Menubar className="ml-auto h-6 min-w-0 flex-1">
+          <Menubar className="ml-auto h-6 min-w-0 flex-1 shadow-none" style={{ boxShadow: "none" }}>
             {groups.map((group) => {
               const groupMetrics = metrics.filter(
                 (metric) => metric.group === group.id
@@ -437,7 +452,7 @@ export const TacticalBoard = memo(function TacticalBoard({
                       {enabledCount}/{groupMetrics.length}
                     </span>
                   </MenubarTrigger>
-                  <MenubarContent className="z-[100] min-w-52">
+                  <MenubarContent className="z-[100] min-w-52 shadow-none" style={{ boxShadow: "none" }}>
                     <MenubarGroup>
                       <MenubarLabel>{groupLabel(group)}</MenubarLabel>
                       <MenubarSeparator />
@@ -486,9 +501,10 @@ export const TacticalBoard = memo(function TacticalBoard({
             <DropdownMenuTrigger
               render={
                 <Button
-                  variant="outline"
+                  variant="control"
                   size="sm"
-                  className="shrink-0 px-1.5 text-[10px]"
+                  className="shrink-0 px-1.5 text-[10px] shadow-none focus-visible:outline-2 focus-visible:outline-ring"
+                  style={{ boxShadow: "none" }}
                 />
               }
             >
@@ -497,7 +513,7 @@ export const TacticalBoard = memo(function TacticalBoard({
                 {Number(showNumbers)}
               </span>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="z-[100] min-w-36">
+            <DropdownMenuContent align="end" className="z-[100] min-w-36 shadow-none" style={{ boxShadow: "none" }}>
               <DropdownMenuCheckboxItem
                 checked={showNumbers}
                 onCheckedChange={(checked) => setShowNumbers(checked === true)}
@@ -510,7 +526,7 @@ export const TacticalBoard = memo(function TacticalBoard({
       </CardHeader>
 
       <CardContent className="flex min-h-0 flex-1 flex-col p-0">
-        <div className="flex min-h-0 min-w-0 flex-1 items-stretch gap-2 overflow-hidden p-3">
+        <div className="flex min-h-0 min-w-0 flex-1 items-stretch gap-2 overflow-hidden px-3 pb-3 pt-0">
           {!liveMode && (
             <aside className="w-28 shrink-0 overflow-y-auto py-1">
               {selectedMetricGroups.length > 0 ? (
@@ -565,7 +581,7 @@ export const TacticalBoard = memo(function TacticalBoard({
             className="tactical-pitch-viewport flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden"
           >
             <div
-              className="tactical-pitch pitch-frame relative shrink-0 text-[var(--pitch-line)]"
+              className="tactical-pitch relative shrink-0 text-[var(--pitch-line)]"
               style={pitchStyle}
             >
               <div className="relative size-full bg-[var(--tactical-pitch-surface)]">
@@ -576,6 +592,7 @@ export const TacticalBoard = memo(function TacticalBoard({
                 <PixiTactical
                   liveMode={liveMode}
                   pitchControlEnabled={pitchControlEnabled}
+                  convexHullEnabled={convexHullEnabled}
                   liveMotionSource={liveMotionSource}
                   replayMotionSource={replayMotionSource}
                   isPanelActive={isPanelActive}

@@ -3,12 +3,12 @@ import { playerStatPosition } from "@/lib/playerStatPosition"
 import { playerStatGroups, type PlayerMetric, type StatGroupId } from "@/lib/playerStatMetrics"
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { ArrowDataTransferHorizontalIcon, FootballIcon, Pin02Icon, SidebarLeft01Icon } from "@hugeicons/core-free-icons"
+import { Pin02Icon, SidebarLeft01Icon, StarIcon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 
-import { AssistIcon } from "@/components/AssistIcon"
-import { PlayerShirt } from "@/components/PlayerShirt"
-import type { MatchKit } from "@/lib/kitRendering"
+import { StatusGlyph } from "@/components/PlayerMatchStatus"
+import { getPlayerMatchStatuses, type PlayerStatus } from "@/lib/playerMatchStatus"
+import { PlayerProfileStatusIcon } from "@/components/PlayerProfileStatusIcon"
 import { FootAbilityIcon, displayAttributeValue, footAbilityTier } from "@/components/FootAbility"
 import { Avatar, AvatarBadge, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
@@ -28,7 +28,7 @@ import {
   HoverCardContent,
   HoverCardTrigger,
 } from "@/components/ui/hover-card"
-import { NativeTabs } from "@/components/uitripled/native-tabs-shadcnui"
+import { NativeTabs } from "@/components/ui/tabs"
 import {
   Tooltip,
   TooltipContent,
@@ -52,14 +52,13 @@ import { exploreTourCloseOverlaysEventName } from "@/features/explore-tour/explo
 
 type SquadPanelProps = {
   title: string
+  pomUid?: number
   teamUid?: number
   side: TeamSide
   players: MatchPlayer[]
   allPlayers?: MatchPlayer[]
   events: MatchEvent[]
   teamColor?: string
-  outfieldKit?: MatchKit
-  goalkeeperKit?: MatchKit
   pinnedPlayerId?: number
   attackingOpponent?: MatchPlayer
   profilePopupSuppressed?: boolean
@@ -71,25 +70,6 @@ type SquadPanelProps = {
   tacticalSelectionActive?: boolean
   tacticalSelectedPlayerIds?: ReadonlySet<number>
   onTacticalPlayerToggle?: (playerId: number) => void
-}
-
-type StatusIcon =
-  | "goal"
-  | "own-goal"
-  | "assist"
-  | "sub-on"
-  | "sub-off"
-  | "yellow-card"
-  | "red-card"
-
-type PlayerStatus = {
-  key: string
-  label: string
-  marker: string
-  icon?: StatusIcon
-  minutes?: number[]
-  count?: number
-  className?: string
 }
 
 const emptyPlayerIdSet: ReadonlySet<number> = new Set()
@@ -230,14 +210,13 @@ function ratingClass(
 
 export const SquadPanel = memo(function SquadPanel({
   title,
+  pomUid,
   teamUid,
   side,
   players,
   allPlayers = players,
   events,
   teamColor,
-  outfieldKit,
-  goalkeeperKit,
   pinnedPlayerId,
   attackingOpponent,
   profilePopupSuppressed = false,
@@ -328,157 +307,14 @@ export const SquadPanel = memo(function SquadPanel({
       : new Set<number>(),
   }), [attackingOpponent, players])
 
-  const minutesFor = (
-    player: MatchPlayer,
-    type: MatchEvent["type"]
-  ) =>
-    events
-      .filter(
-        (event) =>
-        event.playerId === player.id &&
-        event.type === type
-      )
-      .map((event) => event.minute)
-
-  const statusesFor = (
-    player: MatchPlayer
-  ) => {
-    const statuses: PlayerStatus[] = []
-
-    if (
-      player.status
-        ?.ownGoals
-    ) {
-      statuses.push({
-        key: "own-goal",
-        label: t(
-          "squad.ownGoal"
-        ),
-        marker: "",
-        icon: "own-goal",
-        className:
-          "text-status-negative",
-        minutes: minutesFor(
-          player,
-          "own_goal"
-        ),
-        count:
-          player.status
-            .ownGoals,
-      })
-    }
-
-    if (
-      player.status
-        ?.subbedOnMinute
-    ) {
-      statuses.push({
-        key: "on",
-        label: t(
-          "squad.subbedOn"
-        ),
-        marker: "",
-        icon: "sub-on",
-        className:
-          "text-status-positive",
-        minutes: [player.status.subbedOnMinute],
-      })
-    }
-
-    if (
-      player.status
-        ?.subbedOffMinute
-    ) {
-      statuses.push({
-        key: "off",
-        label: t(
-          "squad.subbedOff"
-        ),
-        marker: "",
-        icon: "sub-off",
-        className:
-          "text-status-negative",
-        minutes: [player.status.subbedOffMinute],
-      })
-    }
-
-    if (
-      player.stats.goals
-    ) {
-      statuses.push({
-        key: "goal",
-        label: t(
-          "squad.goal"
-        ),
-        marker: "",
-        icon: "goal",
-        className:
-          "text-foreground",
-        minutes: minutesFor(
-          player,
-          "goal"
-        ),
-        count:
-          player.stats.goals,
-      })
-    }
-
-    if (
-      player.stats.assists
-    ) {
-      statuses.push({
-        key: "assist",
-        label: t(
-          "squad.assist"
-        ),
-        marker: "",
-        icon: "assist",
-        className:
-          "text-primary",
-        minutes: minutesFor(
-          player,
-          "assist_candidate"
-        ),
-        count:
-          player.stats.assists,
-      })
-    }
-
-    const yellowCardMinutes = minutesFor(player, "yellow_card")
-    if (yellowCardMinutes.length > 0) {
-      statuses.push({
-        key: "yellow-card",
-        label: t("squad.yellowCard"),
-        marker: "",
-        icon: "yellow-card",
-        className: "text-status-warning",
-        minutes: yellowCardMinutes,
-        count: yellowCardMinutes.length,
-      })
-    }
-
-    const redCardMinutes = minutesFor(player, "red_card")
-    if (redCardMinutes.length > 0) {
-      statuses.push({
-        key: "red-card",
-        label: t("squad.redCard"),
-        marker: "",
-        icon: "red-card",
-        className: "text-status-negative",
-        minutes: redCardMinutes,
-        count: redCardMinutes.length,
-      })
-    }
-
-    return statuses
-  }
 
   const renderPlayer = (
     player: MatchPlayer
   ) => {
     const statuses =
-      statusesFor(player)
+      getPlayerMatchStatuses(player, events, t)
     const displayName = player.name
+    const isPlayerOfMatch = pomUid != null && pomUid > 0 && player.uid === pomUid
     const positionLabel = squadRole(player)
     const showsFamiliarPosition = !player.isStarter
     const positionDescription = showsFamiliarPosition
@@ -581,9 +417,9 @@ export const SquadPanel = memo(function SquadPanel({
           player={player}
           side={side}
           teamColor={resolvedTeamColor}
-          kit={playerIsGoalkeeper(player) ? goalkeeperKit : outfieldKit}
           panelRef={panelRef}
           pinned={pinnedPlayerId === player.id}
+          isPlayerOfMatch={isPlayerOfMatch}
           hoverEnabled={!tacticalSelectionActive && !profilePopupSuppressed && (pinnedPlayerId == null || pinnedPlayerId === player.id)}
           popupSuppressed={profilePopupSuppressed || tacticalSelectionActive}
           interactionDisabled={tacticalSelectionActive}
@@ -627,6 +463,16 @@ export const SquadPanel = memo(function SquadPanel({
             {pinnedPlayerId === player.id && (
               <AvatarBadge aria-hidden="true" className="size-3! [&>svg]:size-2.5!">
                 <HugeiconsIcon icon={Pin02Icon} strokeWidth={2.2} />
+              </AvatarBadge>
+            )}
+            {isPlayerOfMatch && (
+              <AvatarBadge
+                role="img"
+                aria-label={t("squad.playerOfMatch")}
+                title={t("squad.playerOfMatch")}
+                className="pointer-events-none top-0! bottom-auto! size-3! text-background [&>svg]:size-2.5!"
+              >
+                <HugeiconsIcon icon={StarIcon} fill="currentColor" strokeWidth={0} />
               </AvatarBadge>
             )}
           </Avatar>
@@ -709,7 +555,6 @@ export const SquadPanel = memo(function SquadPanel({
             relative flex shrink-0
             items-center justify-center
             overflow-hidden
-            border-b
             px-3 py-3
             sm:px-4 sm:py-4
           "
@@ -732,26 +577,6 @@ export const SquadPanel = memo(function SquadPanel({
             }}
           />
 
-          {/* bottom highlight */}
-          <div
-            aria-hidden="true"
-            className="
-              pointer-events-none
-              absolute bottom-0 left-1/2
-              h-px w-1/3
-              -translate-x-1/2
-            "
-            style={{
-              background: `linear-gradient(
-                90deg,
-                transparent,
-                ${resolvedTeamColor},
-                transparent
-              )`,
-              boxShadow: `0 0 8px ${resolvedTeamColor}55`,
-            }}
-          />
-
           <div className="relative z-10 min-w-0 max-w-full text-center">
             {teamUid == null ? (
               <h2 className="truncate text-sm font-semibold leading-7 tracking-[0.01em]" style={{ color: resolvedTeamColor, textShadow: `0 0 12px ${resolvedTeamColor}28` }}>{title}</h2>
@@ -770,7 +595,6 @@ export const SquadPanel = memo(function SquadPanel({
             size="icon"
             className={`absolute z-20 size-7 border border-primary/30 bg-primary/10 text-primary hover:bg-primary/20 hover:text-primary ${side === "home" ? "right-2" : "left-2"}`}
             aria-label={t("playerData.openTeam", { team: title })}
-            title={t("playerData.open")}
             aria-expanded={isStatsDrawerOpen}
             onClick={openStatsDrawer}
           >
@@ -833,11 +657,10 @@ export const SquadPanel = memo(function SquadPanel({
 
 function sameSquadPanelProps(previous: SquadPanelProps, next: SquadPanelProps) {
   return previous.title === next.title
+    && previous.pomUid === next.pomUid
     && previous.teamUid === next.teamUid
     && previous.side === next.side
     && previous.teamColor === next.teamColor
-    && previous.outfieldKit === next.outfieldKit
-    && previous.goalkeeperKit === next.goalkeeperKit
     && previous.pinnedPlayerId === next.pinnedPlayerId
     && previous.attackingOpponent === next.attackingOpponent
     && previous.profilePopupSuppressed === next.profilePopupSuppressed
@@ -861,7 +684,6 @@ const PlayerProfileHover = memo(function PlayerProfileHover({
   player,
   side,
   teamColor,
-  kit,
   panelRef,
   pinned,
   hoverEnabled,
@@ -873,9 +695,9 @@ const PlayerProfileHover = memo(function PlayerProfileHover({
   player: MatchPlayer
   side: TeamSide
   teamColor: string
-  kit?: MatchKit
   panelRef: React.RefObject<HTMLElement | null>
   pinned: boolean
+  isPlayerOfMatch: boolean
   hoverEnabled: boolean
   popupSuppressed: boolean
   interactionDisabled: boolean
@@ -964,7 +786,7 @@ const PlayerProfileHover = memo(function PlayerProfileHover({
         className="max-w-none bg-transparent p-0 text-card-foreground shadow-none [animation:none]"
       >
         <Card className="w-[38rem] max-w-[min(38rem,calc(100vw-2rem))] gap-0 border border-border/80 py-0 shadow-2xl">
-          <CardHeader className="grid h-28 grid-cols-[7rem_minmax(0,1fr)] gap-0 overflow-hidden border-b bg-muted/35 p-0">
+          <CardHeader className="grid h-28 grid-cols-[7rem_minmax(0,1fr)] gap-0 overflow-hidden bg-muted/35 p-0">
             <Avatar className="h-28 w-28 rounded-none after:hidden">
               {player.portraitUrl && <AvatarImage src={player.portraitUrl} alt={player.name} className="rounded-none object-cover" />}
               <AvatarFallback className="rounded-none bg-transparent text-lg font-bold" style={{ color: teamColor }}>{initials(player.name)}</AvatarFallback>
@@ -972,7 +794,6 @@ const PlayerProfileHover = memo(function PlayerProfileHover({
             <div className="grid min-w-0 grid-rows-[auto_1fr]">
               <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_15.5rem] items-center gap-3 px-3 pb-2 pt-3">
                 <div className="flex min-w-0 items-center gap-2">
-                  {kit && <PlayerShirt kit={kit} number={player.shirtNumber} shirtName={player.shirtName} />}
                   <div className="min-w-0">
                     <h3 className="truncate text-lg font-bold" title={player.fullName ?? player.name}>{player.name}</h3>
                     <div className="mt-1 text-xs text-muted-foreground">{familiarPosition(player)}</div>
@@ -989,13 +810,13 @@ const PlayerProfileHover = memo(function PlayerProfileHover({
                   </div>
                 </div>
               </div>
-              <div className="grid grid-cols-6 content-center gap-x-3 border-t border-border/60 px-3 py-1.5 text-[10px]">
+              <div className="grid grid-cols-6 content-center gap-x-3 border-t border-border/60 px-3 py-1.5 text-[10px] [&_svg]:size-[calc((2.5em+0.125rem)*2/3)]">
                 <ProfileFact label={t("playerProfile.age")} value={formatAgeAndBirthDate(player.age, player.profile?.dateOfBirth)} />
                 <ProfileFact label={t("playerProfile.bodyType")} value={formatBodyType(player.profile?.bodyType, t)} />
                 <ProfileFact label={t("playerProfile.height")} value={player.profile?.heightCm ? `${player.profile.heightCm} cm` : "-"} />
-                <ProfileFact label={t("playerProfile.overallPhysicalCondition")} value={formatProfileLevel(player.profile?.condition)} />
-                <ProfileFact label={t("playerProfile.matchSharpness")} value={formatProfileLevel(player.profile?.matchSharpness)} />
-                <ProfileFact label={t("playerProfile.morale")} value={formatMorale(player.profile?.morale)} />
+                <div className="flex min-w-0 items-center"><PlayerProfileStatusIcon status="condition" value={player.stats.overallPhysicalCondition} /></div>
+                <div className="flex min-w-0 items-center"><PlayerProfileStatusIcon status="sharpness" value={player.stats.matchSharpness} /></div>
+                <div className="flex min-w-0 items-center"><PlayerProfileStatusIcon status="morale" value={player.stats.morale} /></div>
               </div>
             </div>
           </CardHeader>
@@ -1046,9 +867,10 @@ const PlayerProfileHover = memo(function PlayerProfileHover({
 }, (previous, next) =>
   previous.side === next.side &&
   previous.teamColor === next.teamColor &&
-  previous.kit === next.kit &&
   previous.panelRef === next.panelRef &&
   previous.pinned === next.pinned &&
+  // Avatar children can change at full time even when player data is unchanged.
+  previous.isPlayerOfMatch === next.isPlayerOfMatch &&
   previous.hoverEnabled === next.hoverEnabled &&
   previous.popupSuppressed === next.popupSuppressed &&
   previous.interactionDisabled === next.interactionDisabled &&
@@ -1063,6 +885,9 @@ const PlayerProfileHover = memo(function PlayerProfileHover({
   previous.player.inPossession === next.player.inPossession &&
   previous.player.outOfPossession === next.player.outOfPossession &&
   previous.player.portraitUrl === next.player.portraitUrl &&
+  previous.player.stats.overallPhysicalCondition === next.player.stats.overallPhysicalCondition &&
+  previous.player.stats.matchSharpness === next.player.stats.matchSharpness &&
+  previous.player.stats.morale === next.player.stats.morale &&
   previous.player.profile === next.player.profile &&
   previous.player.attributes === next.player.attributes
 )
@@ -1182,7 +1007,7 @@ export function PlayerComparisonPopup({
       className="pointer-events-auto absolute left-1/2 top-1/2 z-50 w-[57rem] max-w-[calc(100%-1rem)] -translate-x-1/2 -translate-y-1/2"
     >
       <Card className="w-full gap-0 border border-border/80 py-0 shadow-2xl">
-        <CardHeader className="relative grid h-28 grid-cols-2 gap-0 overflow-hidden border-b bg-muted/35 p-0">
+        <CardHeader className="relative grid h-28 grid-cols-2 gap-0 overflow-hidden bg-muted/35 p-0">
           <ComparisonPlayerHeader player={leftPlayer} color={leftColor} side="left" />
           <ComparisonPlayerHeader player={rightPlayer} color={rightColor} side="right" />
           <ComparisonProfileFacts
@@ -1270,7 +1095,7 @@ function ComparisonPlayerHeader({
     </Avatar>
   )
   const details = (
-    <div className={`grid min-w-0 pb-9 ${side === "right" ? "order-1 border-r text-right" : "order-2 border-l"} border-border/70`}>
+    <div className={`grid min-w-0 pb-12 ${side === "right" ? "order-1 border-r text-right" : "order-2 border-l"} border-border/70`}>
       <div className={`grid min-w-0 items-center gap-2 px-3 pb-2 pt-3 ${side === "right" ? "grid-cols-[7rem_minmax(0,1fr)]" : "grid-cols-[minmax(0,1fr)_7rem]"}`}>
         <div
           className={`min-w-0 ${
@@ -1339,29 +1164,32 @@ function ComparisonProfileFacts({
     },
     {
       label: t("playerProfile.overallPhysicalCondition"),
-      left: formatProfileLevel(leftPlayer.profile?.condition),
-      right: formatProfileLevel(rightPlayer.profile?.condition),
+      iconOnly: true,
+      left: <PlayerProfileStatusIcon status="condition" value={leftPlayer.stats.overallPhysicalCondition} />,
+      right: <PlayerProfileStatusIcon status="condition" value={rightPlayer.stats.overallPhysicalCondition} />,
     },
     {
       label: t("playerProfile.matchSharpness"),
-      left: formatProfileLevel(leftPlayer.profile?.matchSharpness),
-      right: formatProfileLevel(rightPlayer.profile?.matchSharpness),
+      iconOnly: true,
+      left: <PlayerProfileStatusIcon status="sharpness" value={leftPlayer.stats.matchSharpness} />,
+      right: <PlayerProfileStatusIcon status="sharpness" value={rightPlayer.stats.matchSharpness} />,
     },
     {
       label: t("playerProfile.morale"),
-      left: formatMorale(leftPlayer.profile?.morale),
-      right: formatMorale(rightPlayer.profile?.morale),
+      iconOnly: true,
+      left: <PlayerProfileStatusIcon status="morale" value={leftPlayer.stats.morale} />,
+      right: <PlayerProfileStatusIcon status="morale" value={rightPlayer.stats.morale} />,
     },
   ]
 
   return (
-    <div className="absolute inset-x-28 bottom-0 grid grid-cols-6 gap-x-2 border-t border-border/60 bg-muted/35 px-3 py-1.5 text-[10px]">
+    <div className="absolute inset-x-28 bottom-0 grid grid-cols-6 gap-x-2 border-t border-border/60 bg-muted/35 px-3 py-1.5 text-[10px] [&_svg]:size-[calc((2.5em+0.125rem)*2/3)]">
       {facts.map((fact) => (
         <div key={fact.label} className="min-w-0 text-center leading-tight">
-          <div className="truncate text-muted-foreground">{fact.label}</div>
-          <div className="mt-0.5 grid grid-cols-2 gap-1 font-semibold tabular-nums">
-            <span className="truncate text-right" style={{ color: leftColor }}>{fact.left}</span>
-            <span className="truncate text-left" style={{ color: rightColor }}>{fact.right}</span>
+          {!fact.iconOnly && <div className="truncate text-muted-foreground">{fact.label}</div>}
+          <div className={`grid grid-cols-2 gap-1 font-semibold tabular-nums ${fact.iconOnly ? "h-full items-center" : "mt-0.5"}`}>
+            <span className={fact.iconOnly ? "flex min-w-0 items-center justify-end" : "truncate text-right"} style={{ color: leftColor }}>{fact.left}</span>
+            <span className={fact.iconOnly ? "flex min-w-0 items-center justify-start" : "truncate text-left"} style={{ color: rightColor }}>{fact.right}</span>
           </div>
         </div>
       ))}
@@ -1461,16 +1289,6 @@ function formatGuideValue(value?: number) {
 
 function formatWage(value?: number) {
   return value && value > 0 ? `£${Math.round(value).toLocaleString()}` : "-"
-}
-
-function formatProfileLevel(value?: number) {
-  if (!value || value <= 0) return "-"
-  const percentage = value > 100 ? value / 100 : value <= 20 ? value * 5 : value
-  return `${Math.round(Math.min(100, percentage))}%`
-}
-
-function formatMorale(value?: number) {
-  return value != null ? String(value) : "-"
 }
 
 function attributeValueClass(value: number) {
@@ -1969,7 +1787,7 @@ function TeamStatsDrawer({
           "--drawer-content-width": `${width}px`,
         } as React.CSSProperties}
       >
-        <DrawerHeader className="relative flex-row items-center gap-3 border-b px-4 py-3">
+        <DrawerHeader className="relative flex-row items-center gap-3 px-4 py-3">
           <div className="min-w-0 flex-1">
             <DrawerTitle className="truncate text-base font-semibold" style={{ color: teamColor }}>{title}</DrawerTitle>
             <div className="flex min-w-0 items-center gap-3">
@@ -2110,18 +1928,7 @@ function PlayerStatsTable({
               {player.shirtNumber ?? "-"}
             </td>
             <td className="sticky left-11 z-20 overflow-hidden border-b border-r bg-card px-2 py-2 font-medium">
-              <HoverCard>
-                <HoverCardTrigger render={<div className="truncate leading-6" />}>
-                  {player.name}
-                </HoverCardTrigger>
-                <HoverCardContent
-                  side="top"
-                  sideOffset={6}
-                  className="w-auto max-w-72 whitespace-nowrap px-2.5 py-1.5 font-medium"
-                >
-                  {player.fullName ?? player.name}
-                </HoverCardContent>
-              </HoverCard>
+              <div className="truncate leading-6">{player.name}</div>
             </td>
             <td className="sticky left-[172px] z-20 overflow-hidden truncate border-b border-r bg-card px-1.5 py-2 text-center">{playerStatPosition(player)}</td>
             {fields.map((field) => {
@@ -2186,7 +1993,7 @@ function SortHeaderButton({
     <button
       type="button"
       disabled={disabled}
-      title={title ?? label}
+      aria-label={title ?? label}
       className={`flex w-full items-center gap-1 px-2 py-2 font-medium transition-colors enabled:hover:bg-muted/60 enabled:hover:text-foreground disabled:cursor-not-allowed disabled:text-muted-foreground/35 ${align === "left" ? "justify-start" : "justify-center"} ${active ? "text-foreground" : "text-muted-foreground"}`}
       onClick={onClick}
     >
@@ -2195,37 +2002,6 @@ function SortHeaderButton({
         {direction === "asc" ? "▲" : direction === "desc" ? "▼" : "↕"}
       </span>
     </button>
-  )
-}
-
-function StatusGlyph({
-  status,
-}: {
-  status: {
-    marker: string
-    icon?: StatusIcon
-    className?: string
-  }
-}) {
-  if (status.icon) {
-    return (
-      <EventIcon
-        icon={
-          status.icon
-        }
-        className={
-          status.className
-        }
-      />
-    )
-  }
-
-  return (
-    <span
-      className={`inline-block shrink-0 ${status.className ?? ""}`}
-    >
-      {status.marker}
-    </span>
   )
 }
 
@@ -2292,69 +2068,5 @@ function PlayerStatusStrip({ statuses }: { statuses: PlayerStatus[] }) {
         ))}
       </div>
     </div>
-  )
-}
-
-function EventIcon({
-  icon,
-  className,
-}: {
-  icon: StatusIcon
-  className?: string
-}) {
-  if (icon === "yellow-card" || icon === "red-card") {
-    return (
-      <span
-        aria-hidden="true"
-        className={`match-card-icon ${
-          icon === "red-card"
-            ? "match-card-icon--red"
-            : "match-card-icon--yellow"
-        } ${className ?? ""}`}
-      />
-    )
-  }
-
-  if (icon === "goal") {
-    return (
-      <img
-        src="./goal.svg"
-        alt=""
-        aria-hidden="true"
-        className={`size-3.5 shrink-0 ${
-          className ?? ""
-        }`}
-      />
-    )
-  }
-
-  if (icon === "own-goal") {
-    return (
-      <HugeiconsIcon
-        icon={FootballIcon}
-        stroke="currentColor"
-        strokeWidth={1.5}
-        aria-hidden="true"
-        className={`size-3.5 shrink-0 ${className ?? ""}`}
-      />
-    )
-  }
-
-  if (icon !== "assist") {
-    return (
-      <HugeiconsIcon
-        icon={ArrowDataTransferHorizontalIcon}
-        strokeWidth={3}
-        aria-hidden="true"
-        className={`size-3.5 shrink-0 ${icon === "sub-off" ? "rotate-180" : ""} ${className ?? ""}`}
-      />
-    )
-  }
-
-  return (
-    <AssistIcon
-      aria-hidden="true"
-      className={`size-3.5 shrink-0 ${className ?? ""}`}
-    />
   )
 }

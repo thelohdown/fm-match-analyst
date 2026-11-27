@@ -9,6 +9,7 @@ import {
   useLiveTacticalMotion,
 } from "@/components/tactical/live/hooks/useLiveTacticalMotion"
 import { useEffect, useRef, useState } from "react"
+import { loadThemeFont } from "@/theme/readThemeFont"
 
 import {
   PixiTacticalRenderer,
@@ -28,6 +29,7 @@ import type {
 
 type PixiTacticalProps = {
   pitchControlEnabled?: boolean
+  convexHullEnabled?: boolean
   liveMode?: boolean
   isPanelActive?: boolean
   liveMotionSource?: LiveMotionSource
@@ -47,6 +49,7 @@ type PixiTacticalProps = {
 
 export function PixiTactical({
   pitchControlEnabled = false,
+  convexHullEnabled = false,
   liveMode = false,
   isPanelActive = true,
   liveMotionSource,
@@ -83,6 +86,9 @@ export function PixiTactical({
   useEffect(() => {
     renderer?.setPitchControlEnabled(pitchControlEnabled)
   }, [renderer, pitchControlEnabled])
+  useEffect(() => {
+    renderer?.setConvexHullEnabled(convexHullEnabled)
+  }, [renderer, convexHullEnabled])
   const hostRef = useRef<HTMLDivElement | null>(null)
   const rendererRef = useRef<PixiTacticalRenderer | null>(null)
   const latestRef = useRef({
@@ -147,6 +153,8 @@ export function PixiTactical({
     void (async () => {
       let renderer: PixiTacticalRenderer | undefined
       try {
+        await loadThemeFont(latestRef.current.appearance.tokens.pitchLabelFont)
+        if (disposed) return
         renderer = await PixiTacticalRenderer.create(
           host,
           fieldWidth,
@@ -209,7 +217,13 @@ export function PixiTactical({
   }, [players])
 
   useEffect(() => {
-    rendererRef.current?.updateAppearance(appearance)
+    let disposed = false
+    void loadThemeFont(appearance.tokens.pitchLabelFont).then(() => {
+      if (!disposed) rendererRef.current?.updateAppearance(appearance)
+    })
+    return () => {
+      disposed = true
+    }
   }, [appearance])
 
   useEffect(() => {

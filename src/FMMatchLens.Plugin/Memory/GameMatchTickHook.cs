@@ -1,3 +1,4 @@
+using BepInEx.Unity.IL2CPP.Hook;
 using FMMatchLens.Plugin.Diagnostics;
 using FMMatchLens.Plugin.Domain;
 using FMMatchLens.Plugin.Services;
@@ -11,7 +12,7 @@ using Tactics = FMMatchLens.Plugin.Memory.Offsets.Tactics;
 
 namespace FMMatchLens.Plugin.Memory;
 
-internal sealed class GameMatchTickHook : IDisposable
+internal sealed partial class GameMatchTickHook : IDisposable
 {
     private const int CandidateRealtimeMaxTicksPerSecond = 240;
     private const int CandidatePaceObservationSeconds = 2;
@@ -64,9 +65,6 @@ internal sealed class GameMatchTickHook : IDisposable
     private readonly Dictionary<nint, NativeMomentumCaptureState> _nativeMomentumStates = new();
     private readonly Dictionary<(nint Match, int Slot), RatingResearchPlayerData> _lastRatingResearchBySlot = new();
     private readonly Dictionary<nint, (float Home, float Away)> _ratingBackgroundByMatch = new();
-    private readonly ConcurrentDictionary<uint, byte> _loggedMacManagerOffsets = new();
-    private const uint MacHumanManagerPersonOffset = 0x548;
-    private const uint MacStaffPersonOffset = 0x208;
     private readonly Dictionary<nint, int> _lastRatingCapturedTickByMatch = new();
     private readonly Dictionary<nint, long> _ratingGenerations = new();
     private readonly Dictionary<nint, RatingResearchMatchData?> _lastRatingMatchByMatch = new();
@@ -136,13 +134,16 @@ internal sealed class GameMatchTickHook : IDisposable
 
         if (IntPtr.Size != 8)
         {
+            _buildRejected = true;
             PluginLogger.Warning("GAME_MATCH Advance hook requires a 64-bit process.");
             return false;
         }
 
-        var moduleBase = FindGamePluginModule();
+        var moduleBase = MacNative.IsMacOS ? MacHookResolver.FindGamePlugin() : GetModuleHandle("game_plugin.dll");
         if (moduleBase == default)
         {
+            // Mod-heavy startup has no fixed deadline. While the module is absent,
+            // retries only query its handle; no hashing, scanning, or detour work runs.
             if (logModuleNotLoaded)
             {
                 PluginLogger.Warning("Unable to install GAME_MATCH Advance hook: game_plugin.dll is not loaded.");
@@ -185,11 +186,8 @@ internal sealed class GameMatchTickHook : IDisposable
         }
         catch (Exception ex)
         {
-            if (resolvingAob) _buildRejected = true;
-            if (logModuleNotLoaded)
-            {
-                PluginLogger.Warning($"Unable to identify game_plugin.dll build: {ex.Message}");
-            }
+            _buildRejected = true;
+            PluginLogger.Warning($"Unable to identify game_plugin.dll build (aob={resolvingAob}, hresult=0x{ex.HResult:X8}); automatic retry stopped: {ex}");
 
             return false;
         }
@@ -197,23 +195,46 @@ internal sealed class GameMatchTickHook : IDisposable
         _instructionOffset = build.MatchTickHookRva;
         _targetAddress = moduleBase + _instructionOffset;
 
+        var stage = "build_resolved";
+        var installTimer = Stopwatch.StartNew();
+        void LogStage(string next)
+        {
+            stage = next;
+            // Preserve the first installation attempt's evidence in release mode.
+            PluginLogger.Info($"Hook diagnostic: stage={stage}, elapsed_ms={installTimer.ElapsedMilliseconds}.");
+        }
         try
         {
+            LogStage("build_resolved");
+            HookInstallDiagnostics.LogRuntime(moduleBase, _targetAddress, supportedBuild);
+            HookInstallDiagnostics.ValidateEntry(_targetAddress);
+            LogStage("address_validated");
             // BepInEx's IL2CPP detour provider creates a permanent native
             // trampoline. Do not use MonoMod NativeDetour.GenerateTrampoline
             // here: in the bundled 22.07.31 version that trampoline performs
             // undo-call-redo on every Original invocation, which races when
             // MatchUpdate is called concurrently by simulation threads.
-            _detour = NativeDetourCompat.CreateAndApply(
-                _targetAddress,
-                _hookDelegate,
-                original => _original = original);
+            stage = "detour_create";
+            _detour = NativeDetourHandle.Create(_targetAddress, _hookDelegate);
+            LogStage("detour_created");
+            HookInstallDiagnostics.ValidateEntry(_detour.OriginalMethodPtr);
+            PluginLogger.Info($"Hook diagnostic: resolved_target={FormatPointer(_detour.OriginalMethodPtr)}, detour={FormatPointer(_detour.DetourMethodPtr)}.");
+            stage = "trampoline_generate";
+            _original = _detour.GenerateTrampoline<MatchUpdateDelegate>();
+            if (_detour.TrampolinePtr == 0)
+                throw new InvalidOperationException("Native detour returned a null trampoline.");
+            LogStage("trampoline_generated");
+            PluginLogger.Info($"Hook diagnostic: trampoline={FormatPointer(_detour.TrampolinePtr)}.");
+            stage = "detour_apply";
+            _detour.Apply();
+            LogStage("detour_applied");
             _started = true;
             StartCaptureWorkers();
+            LogStage("capture_started");
             PluginLogger.Debug(
                 $"GAME_MATCH Advance post hook installed with permanent native trampoline at " +
                 $"game_plugin.dll+0x{_instructionOffset:X} ({FormatPointer(_targetAddress)}), " +
-                $"trampoline={FormatPointer(_detour.TrampolinePtr)}, provider={_detour.Provider}.");
+                $"trampoline={FormatPointer(_detour.TrampolinePtr)}.");
             PluginLogger.Info(
                 $"GAME_MATCH Advance hook installed for {build.Distribution} build " +
                 $"(sha256={build.Sha256}, rva=0x{build.MatchTickHookRva:X}).");
@@ -221,10 +242,15 @@ internal sealed class GameMatchTickHook : IDisposable
         }
         catch (Exception ex)
         {
-            PluginLogger.Warning($"Unable to install GAME_MATCH Advance hook: {ex.Message}");
-            _detour?.Dispose();
-            _detour = null;
-            _original = null;
+            _buildRejected = true;
+            PluginLogger.Warning($"hook_failed_detour: stage={stage}, elapsed_ms={installTimer.ElapsedMilliseconds}, " +
+                $"hresult=0x{ex.HResult:X8}, trampoline={FormatPointer(_detour?.TrampolinePtr ?? 0)}. " +
+                $"Automatic retry stopped; restart the game and collect this log. {ex}");
+            // A failed Prepare/Commit can leave native state whose ownership is
+            // unknown. Keep delegates rooted and never prepare this target again
+            // in this process. Do not blindly destroy another hook's native state.
+            // If capture-worker startup fails after Apply, keep the live hook and
+            // original delegate intact so callbacks can still call the original.
             return false;
         }
     }
@@ -486,6 +512,15 @@ internal sealed class GameMatchTickHook : IDisposable
             frame.Sequence = record.Sequence;
             frame.InstanceGeneration = record.InstanceGeneration;
             frame.FinishedByFlags = record.FinishedByFlags;
+            frame.PomUid = 0;
+            if (record.FinishedByFlags &&
+                _activeSession is { Invalidated: false } pomSession &&
+                pomSession.Animated == record.MatchAddress && pomSession.Generation == record.InstanceGeneration)
+            {
+                // Runs under CaptureGate immediately after native Update, before objects can be reused.
+                pomSession.PomUid ??= PlayerOfMatchReader.ReadUid(_memoryReader, record.MatchAddress);
+                frame.PomUid = pomSession.PomUid.Value;
+            }
             frame.CapturedTimestamp = record.CapturedTimestamp;
             frame.MatchAddress = record.MatchAddress;
             frame.Tick = record.Tick;
@@ -925,6 +960,15 @@ internal sealed class GameMatchTickHook : IDisposable
         var subbedOff = ReadByteDirect(stats + Offsets.PlayerStats.SubbedOffMinute);
         ReadPlayerMovement(matchPlayer, out var speedCentimetersPerSecond, out var angleDegrees);
 
+        // Read the same signed inputs and integer conversions as the match UI.
+        // PlayerStats +0x89/+0x8A can differ at icon boundaries and are not sampled.
+        if (!_memoryReader.TryReadInt32(matchPlayer + Offsets.MatchPlayer.Condition, out var rawCondition) ||
+            !_memoryReader.TryReadInt16(matchPlayer + Offsets.MatchPlayer.Sharpness, out var rawSharpness) ||
+            !_memoryReader.TryReadByte(matchPlayer + Offsets.MatchPlayer.Morale, out var rawMorale))
+        {
+            return false;
+        }
+
         player = new PlayerTickData(
             Slot: slot,
             PlayerId: playerId,
@@ -941,8 +985,8 @@ internal sealed class GameMatchTickHook : IDisposable
             SubbedOffMinute: subbedOff,
             Penalties: ReadByteDirect(stats + Offsets.PlayerStats.Penalties),
             OwnGoals: ReadByteDirect(stats + Offsets.PlayerStats.OwnGoals),
-            OverallPhysicalCondition: ReadByteDirect(stats + Offsets.PlayerStats.OverallPhysicalCondition),
-            MatchSharpness: ReadByteDirect(stats + Offsets.PlayerStats.MatchSharpness),
+            OverallPhysicalCondition: rawCondition / 10000,
+            MatchSharpness: rawSharpness / 100,
             Goals: ReadByteDirect(stats + Offsets.PlayerStats.Goals),
             Assists: ReadByteDirect(stats + Offsets.PlayerStats.Assists),
             Xg: ReadFloatDirect(stats + Offsets.PlayerStats.Xg),
@@ -976,7 +1020,10 @@ internal sealed class GameMatchTickHook : IDisposable
             SavesHeld: ReadByteDirect(stats + Offsets.PlayerStats.SavesHeld),
             SavesParried: ReadByteDirect(stats + Offsets.PlayerStats.SavesParried),
             SavesTipped: ReadByteDirect(stats + Offsets.PlayerStats.SavesTipped),
-            DistanceM: ReadFloatDirect(stats + Offsets.PlayerStats.DistanceM));
+            DistanceM: ReadFloatDirect(stats + Offsets.PlayerStats.DistanceM))
+        {
+            Morale = Math.Clamp((int)unchecked((sbyte)rawMorale), 1, 20)
+        };
         return true;
     }
 
@@ -986,9 +1033,7 @@ internal sealed class GameMatchTickHook : IDisposable
         RawRealtimeTickFrame frame,
         ReadOnlySpan<nint> capturedMatchPlayers)
     {
-        // macOS: the rating-research fields (rating context, events, category history) are not
-        // verified there yet. The displayed rating still comes from PlayerStats.RatingTimes100.
-        if (Offsets.IsMac) return;
+        if (MacNative.IsMacOS) return; // rating research fields are not mapped on macOS yet
         lock (_ratingCaptureGate)
         {
             if (_ratingGenerations.TryGetValue(match, out var generation))
@@ -1478,19 +1523,7 @@ internal sealed class GameMatchTickHook : IDisposable
             var awayMetadata = ReadTeamMetadata(source.AwayTeam, "Away");
             var date = state.MatchDate;
             var competition = ReadCompetitionMetadata(match);
-            if (Offsets.IsMac && !session.MacMetadataLogged)
-            {
-                // Names come from objects the macOS probe never copied, so they are checked here,
-                // once per match, against what FM shows.
-                session.MacMetadataLogged = true;
-                var players = string.Join(", ", metadata.Take(4).Select(p => $"{p.DisplayName} [{p.ShirtName}]"));
-                QueueDiagnostic(DiagnosticSeverity.Info,
-                    $"macOS metadata check: home='{homeMetadata.Name}' (team {homeMetadata.Uid}, club {homeMetadata.ClubUid}, " +
-                    $"manager {homeMetadata.Manager?.FirstName} {homeMetadata.Manager?.SecondName}), away='{awayMetadata.Name}' " +
-                    $"(team {awayMetadata.Uid}, club {awayMetadata.ClubUid}, manager {awayMetadata.Manager?.FirstName} " +
-                    $"{awayMetadata.Manager?.SecondName}), competition='{competition?.Name}' ({competition?.Uid}), date={date}, " +
-                    $"players: {players}.");
-            }
+            if (MacNative.IsMacOS) LogMacMetadataOnce(session, homeMetadata, awayMetadata, metadata, date, competition);
             return () => session.Timeline.SetMetadata(homeMetadata, awayMetadata, metadata, date, competition);
         }
         return null;
@@ -1695,7 +1728,7 @@ internal sealed class GameMatchTickHook : IDisposable
         rttiOffset = default;
         kind = ManagerKind.Unknown;
         uid = null;
-        if (Offsets.IsMac) return TryReadMacManagerIdentity(team, out person, out rttiOffset, out kind, out uid);
+        if (MacNative.IsMacOS) return TryReadMacManagerIdentity(team, out person, out rttiOffset, out kind, out uid);
         if (team == default ||
             !_memoryReader.TryReadPointer(team + Offsets.Team.Manager, out var manager) ||
             manager == default ||
@@ -1720,63 +1753,15 @@ internal sealed class GameMatchTickHook : IDisposable
         return true;
     }
 
-    /// <summary>
-    /// macOS manager identity. Itanium C++ objects keep the subobject's distance from the start
-    /// of the whole object at vtable-0x10 ("offset to top"), the counterpart of the MSVC RTTI
-    /// subobject offset used on Windows (0x440 human, 0x100 staff). On macOS a human manager's
-    /// person sits 0x548 into its object and an AI manager's 0x208 (FM27 full release, seen live
-    /// for both sides of one match). Each value seen is logged once.
-    /// </summary>
-    private bool TryReadMacManagerIdentity(
-        nint team,
-        out nint person,
-        out uint offsetToTop,
-        out ManagerKind kind,
-        out uint? uid)
-    {
-        person = default;
-        offsetToTop = default;
-        kind = ManagerKind.Unknown;
-        uid = null;
-        if (team == default ||
-            !_memoryReader.TryReadPointer(team + Offsets.Team.Manager, out var manager) ||
-            manager == default ||
-            !_memoryReader.TryReadPointer(manager + Offsets.Manager.Person, out person) ||
-            person == default ||
-            !_memoryReader.TryReadPointer(person, out var virtualFunctionTable) ||
-            virtualFunctionTable == default ||
-            !_memoryReader.TryReadUInt64(virtualFunctionTable - 0x10, out var rawOffsetToTop))
-        {
-            return false;
-        }
-
-        offsetToTop = unchecked((uint)(-(long)rawOffsetToTop));
-        kind = offsetToTop switch
-        {
-            MacHumanManagerPersonOffset => ManagerKind.Human,
-            MacStaffPersonOffset => ManagerKind.Staff,
-            _ => ManagerKind.Unsupported
-        };
-        uid = ReadUid(person + Offsets.Person.Uid);
-        if (_loggedMacManagerOffsets.TryAdd(offsetToTop, 0))
-        {
-            QueueDiagnostic(DiagnosticSeverity.Info,
-                $"macOS manager person: offset to top 0x{offsetToTop:X}, uid={uid?.ToString() ?? "?"}, " +
-                $"name={ReadPersonName(person, Offsets.Person.FirstName)} {ReadPersonName(person, Offsets.Person.SecondName)}.");
-        }
-
-        return true;
-    }
-
     private IReadOnlyDictionary<string, int>? ReadPlayerPositionFamiliarities(nint person)
     {
+        if (MacNative.IsMacOS) return null; // the player record is not mapped on macOS yet
         if (person == default)
         {
             return null;
         }
 
         var actualPlayer = person + Offsets.Person.ActualPlayerDelta;
-        if (Offsets.IsMac && !MacPlayerRecordLooksRight(actualPlayer)) return null;
         var familiarities = new Dictionary<string, int>(PlayerPositionFamiliarity.Labels.Length, StringComparer.Ordinal);
         for (var index = 0; index < PlayerPositionFamiliarity.Labels.Length; index++)
         {
@@ -1811,15 +1796,13 @@ internal sealed class GameMatchTickHook : IDisposable
 
     private PlayerProfile? ReadPlayerProfile(nint person, nint fullContract)
     {
+        if (MacNative.IsMacOS) return null; // the player record is not mapped on macOS yet
         if (person == default)
         {
             return null;
         }
 
-        // macOS: the ActualPlayer layout was mapped from snapshots; a record that does not look
-        // like a player's leaves its fields null (a null base makes those reads fail).
         var actualPlayer = person + Offsets.Person.ActualPlayerDelta;
-        if (Offsets.IsMac && !MacPlayerRecordLooksRight(actualPlayer)) actualPlayer = default;
         _memoryReader.TryReadPointer(person + Offsets.Person.Nation, out var nation);
         var bodyType = _memoryReader.TryReadByte(actualPlayer + Offsets.ActualPlayer.BodyType, out var rawBodyType) &&
                        rawBodyType is >= 1 and <= 5
@@ -1842,8 +1825,7 @@ internal sealed class GameMatchTickHook : IDisposable
             ReadOptionalByte(person + Offsets.Person.YouthApps),
             ReadOptionalByte(person + Offsets.Person.YouthGoals),
             ReadPositiveInt16(actualPlayer + Offsets.ActualPlayer.MatchSharpness),
-            // macOS: the season stats object is not mapped yet.
-            Offsets.IsMac ? null : ReadPlayerSeasonStats(actualPlayer));
+            ReadPlayerSeasonStats(actualPlayer));
         return profile.WeeklyWage.HasValue || profile.HeightCm.HasValue || profile.Condition.HasValue || profile.MatchSharpness.HasValue || profile.Morale.HasValue ||
                profile.DateOfBirth is not null || profile.NationUid.HasValue || profile.BodyType.HasValue || profile.GuideValueGbp.HasValue ||
                profile.InternationalApps.HasValue || profile.YouthApps.HasValue || profile.SeasonStats is not null
@@ -1943,13 +1925,13 @@ internal sealed class GameMatchTickHook : IDisposable
 
     private PlayerAttributes? ReadPlayerAttributes(nint person)
     {
+        if (MacNative.IsMacOS) return null; // the player record is not mapped on macOS yet
         if (person == default)
         {
             return null;
         }
 
         var player = person + Offsets.Person.ActualPlayerDelta;
-        if (Offsets.IsMac && !MacPlayerRecordLooksRight(player)) return null;
         var attributes = new PlayerAttributes(
             new Dictionary<string, int>
             {
@@ -2021,31 +2003,6 @@ internal sealed class GameMatchTickHook : IDisposable
                attributes.Goalkeeping.Values.Any(value => value > 0)
             ? attributes
             : null;
-    }
-
-    /// <summary>
-    /// macOS check before trusting the ActualPlayer layout: 15 position familiarities of 1-20
-    /// with at least one natural position, and every attribute byte between 1 and 100.
-    /// </summary>
-    private bool MacPlayerRecordLooksRight(nint actualPlayer)
-    {
-        var start = actualPlayer + Offsets.ActualPlayer.PositionGk;
-        var length = Offsets.ActualPlayer.Concentration - Offsets.ActualPlayer.PositionGk + 1;
-        if (!VirtualMemory.IsReadable(start, length)) return false;
-        var best = 0;
-        for (var i = 0; i < PlayerPositionFamiliarity.Labels.Length; i++)
-        {
-            var value = Marshal.ReadByte(start + i);
-            if (value is < 1 or > 20) return false;
-            best = Math.Max(best, value);
-        }
-        if (best < 15) return false;
-        for (var offset = Offsets.ActualPlayer.Crossing; offset <= Offsets.ActualPlayer.Concentration; offset++)
-        {
-            var value = Marshal.ReadByte(actualPlayer + offset);
-            if (value is < 1 or > 100) return false;
-        }
-        return true;
     }
 
     private int ReadAttribute(nint player, int offset)
@@ -3381,10 +3338,10 @@ internal sealed class GameMatchTickHook : IDisposable
         public bool CanReadMetadata = true;
         public long LastMetadataTimestamp;
         public long FinalFrameSequence;
+        public uint? PomUid; // Null until the first 0x4 terminal snapshot, including a resolved zero.
         public bool EndObserved, FinalFrameQueued, FinalFrameRejected;
         public int ClearedTeamObservations;
         public int UnreadableObservations;
-        public bool MacMetadataLogged;
     }
 
     private enum SessionIdentityProbe { Busy, Unreadable, Readable }
@@ -3429,30 +3386,6 @@ internal sealed class GameMatchTickHook : IDisposable
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern nint GetModuleHandle(string moduleName);
-
-    private static bool _macModuleLogged;
-
-    // Windows: game_plugin.dll by name. macOS: the loaded image whose path
-    // contains game_plugin, found through dyld. The first time it is found on
-    // macOS, log what a port needs to know about it.
-    private static nint FindGamePluginModule()
-    {
-        if (!MacNative.IsMacOS) return GetModuleHandle("game_plugin.dll");
-
-        var header = MacNative.FindGamePlugin(out var path, out var candidates);
-        if (header == default || _macModuleLogged) return header;
-        _macModuleLogged = true;
-        foreach (var candidate in candidates)
-            PluginLogger.Info($"[macOS] game_plugin candidate: {candidate.Path} at {FormatPointer(candidate.Header)}.");
-        var functionCount = MacNative.CountFunctionStarts(header);
-        var ranges = MacNative.TryGetExecutableRanges(header, out var found, out var failure)
-            ? string.Join(", ", found.Select(range => $"0x{range.Rva:X}+0x{range.Size:X}"))
-            : $"unavailable ({failure})";
-        PluginLogger.Info(
-            $"[macOS] Using {path} at {FormatPointer(header)}: cputype=0x{MacNative.ReadCpuType(header):X8}, " +
-            $"function starts={functionCount}, executable ranges={ranges}.");
-        return header;
-    }
 
     // Owned by one candidate identity generation, then shared with its confirmed
     // animated-match session. Called only inside the hook's existing post-Original
@@ -3541,7 +3474,6 @@ internal sealed class GameMatchTickHook : IDisposable
             if (context == 0) return new("unavailable", null, null, null, null, players.ToArray());
             var processing = ReadConfiguration(context + Tactics.Context.ProcessingConfiguration);
             var command = ReadConfiguration(context + Tactics.Context.CommandConfiguration);
-            if (Offsets.IsMac) MacTacticsDiagnostics.LogOnce(context, side, processing, command, players);
             var personal = ReadBytes(context + Tactics.Context.PersonalOpposition, Tactics.PersonalOppositionCount * Tactics.PersonalOppositionRecordSize);
             TacticalOppositionPosition[]? positions = null;
             if (_reader.TryReadByte(context + Tactics.Context.PositionOppositionCount, out var count) && count <= Tactics.PositionOppositionCapacity &&
@@ -3567,11 +3499,6 @@ internal sealed class GameMatchTickHook : IDisposable
         private TacticalConfiguration? ReadConfiguration(nint address)
         {
             if (!VirtualMemory.IsReadable(address, Tactics.Configuration.Size)) return null;
-            // The macOS layout is derived from snapshots; refuse a block whose formations
-            // do not decode rather than report a made-up tactic.
-            if (Offsets.IsMac && (!MacTacticsDiagnostics.LooksLikeFormation(address + Tactics.Configuration.InPossession) ||
-                                  !MacTacticsDiagnostics.LooksLikeFormation(address + Tactics.Configuration.OutOfPossession)))
-                return null;
             byte[]? name = null;
             var text = Marshal.ReadIntPtr(address + Tactics.Configuration.Name);
             if (text == default) name = Array.Empty<byte>();
@@ -3612,7 +3539,6 @@ internal sealed class GameMatchTickHook : IDisposable
 
         private TacticalPersonalOverride[]? ReadOverrides(nint tree)
         {
-            if (Offsets.IsMac) return ReadMacOverrides(tree);
             if (!_reader.TryReadPointer(tree + Tactics.OverrideTree.Header, out var header) || header == 0 ||
                 !_reader.TryReadUInt64(tree + Tactics.OverrideTree.Count, out var declaredCount) || declaredCount > Tactics.PersonalOppositionCount ||
                 !VirtualMemory.IsReadable(header, Tactics.OverrideTree.HeaderSize)) return null;
@@ -3630,36 +3556,6 @@ internal sealed class GameMatchTickHook : IDisposable
                 result.Add(new(unchecked((uint)Marshal.ReadInt32(node + Tactics.OverrideTree.PersonKey)), ReadPositionsDirect(begin, count)));
                 pending.Push(Marshal.ReadIntPtr(node + Tactics.OverrideTree.Left));
                 pending.Push(Marshal.ReadIntPtr(node + Tactics.OverrideTree.Right));
-            }
-            if ((ulong)result.Count != declaredCount) return null;
-            return result.OrderBy(value => value.PersonKey).ToArray();
-        }
-
-        /// <summary>Walks a libc++ std::map of personal overrides (see Offsets.Tactics.MacOverrideTree).</summary>
-        private TacticalPersonalOverride[]? ReadMacOverrides(nint map)
-        {
-            if (!VirtualMemory.IsReadable(map, 0x18) ||
-                !_reader.TryReadUInt64(map + Tactics.MacOverrideTree.Size, out var declaredCount) || declaredCount > Tactics.PersonalOppositionCount)
-                return null;
-            var endNode = map + Tactics.MacOverrideTree.Root;
-            // nint, not IntPtr: the plugin targets net6.0, where IntPtr has no == with an int.
-            nint root = Marshal.ReadIntPtr(endNode);
-            nint begin = Marshal.ReadIntPtr(map + Tactics.MacOverrideTree.Begin);
-            // An empty map points its begin at its own end node and has no root.
-            if (declaredCount == 0) return root == 0 && begin == endNode ? Array.Empty<TacticalPersonalOverride>() : null;
-            var result = new List<TacticalPersonalOverride>();
-            var pending = new Stack<nint>();
-            var visited = new HashSet<nint>();
-            pending.Push(root);
-            while (pending.Count != 0)
-            {
-                var node = pending.Pop();
-                if (node == 0) continue;
-                if (!visited.Add(node) || visited.Count > Tactics.PersonalOppositionCount || !VirtualMemory.IsReadable(node, Tactics.MacOverrideTree.NodeSize)) return null;
-                if (!TryVector(node + Tactics.MacOverrideTree.Positions, Tactics.Position.Size, Tactics.FormationSlotCount, out var positions, out var count)) return null;
-                result.Add(new(unchecked((uint)Marshal.ReadInt32(node + Tactics.MacOverrideTree.PersonKey)), ReadPositionsDirect(positions, count)));
-                pending.Push(Marshal.ReadIntPtr(node + Tactics.MacOverrideTree.Left));
-                pending.Push(Marshal.ReadIntPtr(node + Tactics.MacOverrideTree.Right));
             }
             if ((ulong)result.Count != declaredCount) return null;
             return result.OrderBy(value => value.PersonKey).ToArray();

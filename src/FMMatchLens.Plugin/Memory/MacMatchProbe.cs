@@ -171,11 +171,15 @@ internal sealed class MacMatchProbe
 
             _imageSpans = BuildImageSpans();
             PluginLogger.Info($"[macOS probe] {_imageSpans.Length} image address ranges excluded from graph snapshots.");
-            PluginLogger.Info($"[macOS probe] Detour provider: {NativeDetourCompat.DescribeProvider()}");
-            _detour = NativeDetourCompat.CreateAndApply(header + rva, _hookDelegate, original => _original = original);
+            // The same steps as the capture hook: create, generate the trampoline, apply.
+            _detour = NativeDetourHandle.Create(header + rva, _hookDelegate);
+            _original = _detour.GenerateTrampoline<MatchUpdateDelegate>();
+            if (_detour.TrampolinePtr == 0)
+                throw new InvalidOperationException("Native detour returned a null trampoline.");
+            _detour.Apply();
             PluginLogger.Info(
-                $"[macOS probe] Hooked GAME_MATCH Advance at game_plugin+0x{rva:X} ({source}, sha256={sha256}) " +
-                $"via {_detour.Provider}, trampoline=0x{(long)_detour.TrampolinePtr:X}.");
+                $"[macOS probe] Hooked GAME_MATCH Advance at game_plugin+0x{rva:X} ({source}, sha256={sha256}), " +
+                $"trampoline=0x{(long)_detour.TrampolinePtr:X}.");
         }
         catch (Exception ex)
         {

@@ -1,6 +1,9 @@
+import { readThemeFont } from "@/theme/readThemeFont"
+import { readThemeLength } from "@/theme/readThemeLength"
 import { TacticalRenderScheduler } from "@/components/tactical/shared/runtime/tacticalRenderScheduler"
 import type { TacticalMotionFrame } from "@/components/tactical/shared/core/types"
 import { PitchControlRenderer } from "@/components/tactical/shared/renderer/PitchControlRenderer"
+import { ConvexHullRenderer } from "@/components/tactical/shared/renderer/ConvexHullRenderer"
 import { MotionRenderer } from "@/components/tactical/shared/renderer/MotionRenderer"
 import ballSvg from "../../../public/goal.svg?raw"
 import {
@@ -49,6 +52,10 @@ export type TacticalHit = {
 }
 
 type ResolvedAppearance = {
+  fontFamily: string[]
+  contourColor: number
+  contourOpacity: number
+  contourWidth: number
   homeColor: number
   awayColor: number
   background: number
@@ -101,6 +108,8 @@ export class PixiTacticalRenderer {
   private readonly playbackRenderer: PlaybackRenderer
   private readonly pitchControlRenderer: PitchControlRenderer
   private pitchControlEnabled = false
+  private readonly convexHullRenderer: ConvexHullRenderer
+  private convexHullEnabled = false
   private readonly motionRenderer: MotionRenderer
   private readonly markerByEventId = new Map<string, MarkerRecord>()
   private readonly trajectoryByEventId = new Map<string, Graphics>()
@@ -175,7 +184,15 @@ export class PixiTacticalRenderer {
       width,
       height,
       this.resolvedAppearance.homeColor,
-      this.resolvedAppearance.awayColor
+      this.resolvedAppearance.awayColor,
+      this.resolvedAppearance.contourColor,
+      this.resolvedAppearance.contourOpacity,
+      this.resolvedAppearance.contourWidth
+    )
+    this.convexHullRenderer = new ConvexHullRenderer(
+      width,
+      height,
+      this.convexHullAppearance()
     )
     this.motionRenderer = new MotionRenderer(
       width,
@@ -196,12 +213,14 @@ export class PixiTacticalRenderer {
     )
     this.stage.addChild(
       this.pitchControlRenderer.container,
+      this.convexHullRenderer.container,
       this.trajectoryLayer,
       this.shotChainLayer,
       this.markerLayer,
       this.selectionLayer,
       this.playbackRenderer.trailLayer,
       this.motionRenderer.container,
+      this.convexHullRenderer.labels,
       this.playbackRenderer.container
     )
   }
@@ -325,9 +344,13 @@ export class PixiTacticalRenderer {
     this.drawShotChains(this.shotChains)
     this.playbackRenderer.updateAppearance(this.playbackAppearance())
     this.motionRenderer.updateAppearance(this.playbackAppearance())
+    this.convexHullRenderer.updateAppearance(this.convexHullAppearance())
     this.pitchControlRenderer.updateAppearance(
       this.resolvedAppearance.homeColor,
-      this.resolvedAppearance.awayColor
+      this.resolvedAppearance.awayColor,
+      this.resolvedAppearance.contourColor,
+      this.resolvedAppearance.contourOpacity,
+      this.resolvedAppearance.contourWidth
     )
     this.renderOnce()
   }
@@ -350,6 +373,7 @@ export class PixiTacticalRenderer {
   updatePlayback(playback: TacticalPlayback | null) {
     const changed = this.playbackRenderer.updatePlayback(playback)
     if (!changed) return
+    this.syncLiveOverlays()
     this.motionRenderer.container.visible = playback != null || this.liveMode
     this.setBaseLayersVisible(playback == null && !this.liveMode)
     this.renderOnce()
@@ -358,7 +382,7 @@ export class PixiTacticalRenderer {
   setLiveMode(enabled: boolean) {
     if (this.liveMode === enabled) return
     this.liveMode = enabled
-    this.pitchControlRenderer.setEnabled(enabled && this.pitchControlEnabled)
+    this.syncLiveOverlays()
     this.motionRenderer.container.visible =
       enabled || this.playbackRenderer.active
     this.setBaseLayersVisible(!enabled && !this.playbackRenderer.active)
@@ -370,16 +394,19 @@ export class PixiTacticalRenderer {
     } else {
       this.scheduler.removeTask("live")
       this.motionRenderer.clear()
+      this.pitchControlRenderer.clear()
+      this.convexHullRenderer.clear()
     }
     this.renderOnce()
   }
   setPitchControlEnabled(enabled: boolean) {
     this.pitchControlEnabled = enabled
-    this.pitchControlRenderer.setEnabled(enabled && this.liveMode)
+    this.syncLiveOverlays()
     this.renderOnce()
   }
   renderMotionFrame(frame: TacticalMotionFrame) {
     this.pitchControlRenderer.renderFrame(frame)
+    this.convexHullRenderer.renderFrame(frame)
     this.motionRenderer.container.visible = true
     this.motionRenderer.renderFrame(frame)
     this.renderOnce()
@@ -387,11 +414,16 @@ export class PixiTacticalRenderer {
   clearMotion() {
     this.scheduler.removeTask("live")
     this.motionRenderer.clear()
+    this.clearLiveOverlays()
+  }
+  clearLiveOverlays() {
     this.pitchControlRenderer.clear()
+    this.convexHullRenderer.clear()
     this.renderOnce()
   }
-  clearPitchControl() {
-    this.pitchControlRenderer.clear()
+  setConvexHullEnabled(enabled: boolean) {
+    this.convexHullEnabled = enabled
+    this.syncLiveOverlays()
     this.renderOnce()
   }
   setPanelActive(active: boolean) {
@@ -404,6 +436,7 @@ export class PixiTacticalRenderer {
       this.scheduleAnimationFrame()
       this.renderOnce()
     }
+    this.syncLiveOverlays()
   }
   updatePlaybackTextResolver(resolver: PlaybackTextResolver) {
     this.playbackRenderer.updateTextResolver(resolver)
@@ -493,6 +526,7 @@ export class PixiTacticalRenderer {
     this.playbackRenderer.resize(width, height)
     this.motionRenderer.resize(width, height)
     this.pitchControlRenderer.resize(width, height)
+    this.convexHullRenderer.resize(width, height)
     this.renderOnce()
   }
 
@@ -515,6 +549,9 @@ export class PixiTacticalRenderer {
     this.motionRenderer.destroy()
     this.stage.removeChild(this.pitchControlRenderer.container)
     this.pitchControlRenderer.destroy()
+    this.stage.removeChild(this.convexHullRenderer.container)
+    this.stage.removeChild(this.convexHullRenderer.labels)
+    this.convexHullRenderer.destroy()
     this.stage.destroy({ children: true })
     this.renderer.destroy({ removeView: true })
     this.colorProbe.remove()
@@ -608,7 +645,7 @@ export class PixiTacticalRenderer {
       record.label = new BitmapText({
         text: value,
         style: {
-          fontFamily: "Arial",
+          fontFamily: this.resolvedAppearance.fontFamily,
           fontSize,
           fontWeight: "bold",
           fill: color,
@@ -618,6 +655,7 @@ export class PixiTacticalRenderer {
       record.label.anchor.set(0.5)
       record.container.addChild(record.label)
     } else {
+      record.label.style.fontFamily = this.resolvedAppearance.fontFamily
       if (record.labelValue !== value) record.label.text = value
       if (record.labelColor !== color) record.label.style.fill = color
       if (record.labelFontSize !== fontSize)
@@ -919,7 +957,15 @@ export class PixiTacticalRenderer {
   private resolveAppearance(
     appearance: TacticalAppearance
   ): ResolvedAppearance {
+    const style = getComputedStyle(document.documentElement)
     return {
+      fontFamily: readThemeFont(appearance.tokens.pitchLabelFont),
+      contourColor: this.resolveCssColor(
+        appearance.tokens.pitchControlContour,
+        0xffffff
+      ),
+      contourOpacity: Number(style.getPropertyValue("--pitch-control-contour-opacity")),
+      contourWidth: readThemeLength("pitch-control-contour-width", 1),
       homeColor: this.resolveCssColor(appearance.homeColor, 0x0072b2),
       awayColor: this.resolveCssColor(appearance.awayColor, 0xd55e00),
       background: this.resolveCssColor(
@@ -939,8 +985,24 @@ export class PixiTacticalRenderer {
     }
   }
 
+  private syncLiveOverlays() {
+    const active =
+      this.liveMode && this.panelActive && !this.playbackRenderer.active
+    this.pitchControlRenderer.setEnabled(active && this.pitchControlEnabled)
+    this.convexHullRenderer.setEnabled(active && this.convexHullEnabled)
+  }
+
+  private convexHullAppearance() {
+    return {
+      home: this.resolvedAppearance.homeColor,
+      away: this.resolvedAppearance.awayColor,
+      fontFamily: this.resolvedAppearance.fontFamily,
+    }
+  }
+
   private playbackAppearance() {
     return {
+      fontFamily: this.resolvedAppearance.fontFamily,
       home: this.resolvedAppearance.homeColor,
       away: this.resolvedAppearance.awayColor,
       homeGoalkeeperColor: this.appearance.homeGoalkeeperColor,

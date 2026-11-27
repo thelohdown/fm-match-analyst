@@ -94,6 +94,7 @@ export type HeatmapQuery = {
 export type HeatmapGrid = {
   width: 40
   height: 60
+  /** Team-relative display coordinates: own goal below, attack upwards. */
   density: Float32Array
   sampleCount: number
   averageX: number
@@ -241,6 +242,8 @@ export type PlayerStats = {
   distanceM?: number
   overallPhysicalCondition?: number
   matchSharpness?: number
+  /** Match UI morale, 1–20; absent in archives before 2.12. */
+  morale?: number
 }
 
 export type PlayerProfile = {
@@ -451,7 +454,11 @@ export type TeamThemeColors = {
 }
 
 export type MatchSnapshot = {
+  competition?: { uid?: number; name?: string; logoUrl?: string }
   isFullTime?: boolean
+  /** Live history and final metadata have been synchronized for report export. */
+  reportDataReady?: boolean
+  pomUid?: number
   tactics?: import("@/components/formation/tactics").DecodedTacticalSnapshot
   matchId?: string
   /** Actual venue dimensions in metres when available. */

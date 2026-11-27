@@ -1,51 +1,40 @@
 namespace FMMatchLens.Plugin.Memory;
 
-internal static class Offsets
+internal static partial class Offsets
 {
-    /// <summary>
-    /// Fields whose position differs in the macOS (arm64, Itanium C++ ABI) build are
-    /// <c>static readonly</c> and chosen here; everything still <c>const</c> has the same
-    /// value on both platforms, either verified on macOS or not read there (see mac/README.md).
-    /// </summary>
-    /// macOS layout, or the macOS layout forced for offline tests against probe snapshots
-    /// (FMMATCHLENS_MAC_OFFSETS=1, see mac/offline).
-    public static readonly bool IsMac = OperatingSystem.IsMacOS() ||
-        Environment.GetEnvironmentVariable("FMMATCHLENS_MAC_OFFSETS") == "1";
-
-    private static int Pick(int windows, int mac) => IsMac ? mac : windows;
-
-    public static class GameMatch
+    public static partial class GameMatch
     {
-        public static readonly int Competition = Pick(0x678, 0x670);
-        public static readonly int CompetitionId = Pick(0x684, 0x67C);
-        public static readonly int CompetitionPrimaryColour = Pick(0x68C, 0x684);
-        public static readonly int CompetitionSecondaryColour = Pick(0x690, 0x688);
-        public static readonly int CompetitionTertiaryColour = Pick(0x694, 0x68C);
-        public static readonly int EventRewardBranch = Pick(0xAD2, 0xACA);
-        public static readonly int BallPosition = Pick(0x12A40, 0x12A30); // inline structure, not a pointer
-        public static readonly int MomentumEventSource = Pick(0x14EA8, 0x14E98);
-        public static readonly int WaitingReceiver = Pick(0x12E70, 0x12E60);
-        public static readonly int HomeTeam = Pick(0x15380, 0x15370);
-        public static readonly int AwayTeam = Pick(0x15388, 0x15378);
-        public static readonly int PreviousBallHolder = Pick(0x15398, 0x15388);
-        public static readonly int CurrentBallHolder = Pick(0x153A0, 0x15390);
-        public static readonly int Referee = Pick(0x153F0, 0x153E0);
-        public static readonly int StadiumColourObject = Pick(0x153F8, 0x153E8);
-        public static readonly int PossessionTeam = Pick(0x15440, 0x15430);
+        public static readonly int Competition = 0x678;
+        public static readonly int CompetitionId = 0x684;
+        public static readonly int CompetitionPrimaryColour = 0x68C;
+        public static readonly int CompetitionSecondaryColour = 0x690;
+        public static readonly int CompetitionTertiaryColour = 0x694;
+        public static readonly int EventRewardBranch = 0xAD2;
+        public static readonly int BallPosition = 0x12A40; // inline structure, not a pointer
+        public static readonly int MomentumEventSource = 0x14EA8;
+        public static readonly int WaitingReceiver = 0x12E70;
+        public static readonly int HomeTeam = 0x15380;
+        public static readonly int AwayTeam = 0x15388;
+        public static readonly int PreviousBallHolder = 0x15398;
+        public static readonly int CurrentBallHolder = 0x153A0;
+        public static readonly int PlayerOfMatch = 0x153B0; // MATCH_PLAYER*, populated by native award selection
+        public static readonly int Referee = 0x153F0;
+        public static readonly int StadiumColourObject = 0x153F8;
+        public static readonly int PossessionTeam = 0x15440;
         // RTTI-verified official objects; the former FM26 constants pointed to
         // auxiliary data and timestamps rather than these officials.
-        public static readonly int AssistantRefereeOne = Pick(0x15350, 0x15340);
-        public static readonly int AssistantRefereeTwo = Pick(0x15358, 0x15348);
-        public static readonly int FourthOfficialOne = Pick(0x15360, 0x15350);
-        public static readonly int FourthOfficialTwo = Pick(0x15368, 0x15358);
-        public static readonly int DisplayTick = Pick(0x15464, 0x15454);
-        public static readonly int Tick = Pick(0x154EC, 0x154DC);
-        public static readonly int RatingBaseCondition = Pick(0x15500, 0x154F0);
-        public static readonly int Period = Pick(0x15547, 0x15537);
-        public static readonly int LifecycleStateA = Pick(0x15568, 0x15558);
-        public static readonly int LifecycleStateB = Pick(0x15569, 0x15559);
-        public static readonly int LifecycleStateC = Pick(0x1556A, 0x1555A);
-        public static readonly int LifecycleStateD = Pick(0x1556B, 0x1555B);
+        public static readonly int AssistantRefereeOne = 0x15350;
+        public static readonly int AssistantRefereeTwo = 0x15358;
+        public static readonly int FourthOfficialOne = 0x15360;
+        public static readonly int FourthOfficialTwo = 0x15368;
+        public static readonly int DisplayTick = 0x15464;
+        public static readonly int Tick = 0x154EC;
+        public static readonly int RatingBaseCondition = 0x15500;
+        public static readonly int Period = 0x15547;
+        public static readonly int LifecycleStateA = 0x15568;
+        public static readonly int LifecycleStateB = 0x15569;
+        public static readonly int LifecycleStateC = 0x1556A;
+        public static readonly int LifecycleStateD = 0x1556B;
     }
 
     public static class BallPosition
@@ -63,16 +52,16 @@ internal static class Offsets
         public const int Name = 0x40;
     }
 
-    public static class MomentumEventSource
+    public static partial class MomentumEventSource
     {
         public const int EventsBegin = 0x08;
         public const int EventsEnd = 0x10;
-        public static readonly int HalfPitchWidth = Pick(0xE0, 0x100);
-        public static readonly int HalfPitchLength = Pick(0xE4, 0x104);
-        public static readonly int FirstHalfEndTick = Pick(0xE8, 0x108);
-        public static readonly int FullTimeEndTick = Pick(0xEC, 0x10C);
-        public static readonly int ExtraTimeFirstHalfEndTick = Pick(0xF0, 0x110);
-        public static readonly int ExtraTimeFlag = Pick(0xF4, 0x114);
+        public static readonly int HalfPitchWidth = 0xE0;
+        public static readonly int HalfPitchLength = 0xE4;
+        public static readonly int FirstHalfEndTick = 0xE8;
+        public static readonly int FullTimeEndTick = 0xEC;
+        public static readonly int ExtraTimeFirstHalfEndTick = 0xF0;
+        public static readonly int ExtraTimeFlag = 0xF4;
     }
 
     public static class MomentumEvent
@@ -190,35 +179,35 @@ internal static class Offsets
         public const int LongitudinalPosition = 0x04;
     }
 
-    public static class Team
+    public static partial class Team
     {
         // Pointer to the team's manager wrapper. Manager.Person resolves to the
         // shared Person subobject for both human managers and AI staff.
-        public static readonly int Manager = Pick(0x630, 0x640);
+        public static readonly int Manager = 0x630;
         // Inline table of MATCH_PLAYER pointers. MomentumEvent player slots are
         // zero-based indexes into this table.
-        public static readonly int PlayerTable = Pick(0x138, 0x140);
+        public static readonly int PlayerTable = 0x138;
         // Total entries can include players outside this match's squad. Those
         // entries may alias another player's Stats or have no Stats at all.
-        public static readonly int PlayerTableCount = Pick(0x72D, 0x73D);
+        public static readonly int PlayerTableCount = 0x72D;
         // One-byte matchday count: the selected prefix of PlayerTable, including
         // starters and substitutes. Use it for frames, metadata and event slots.
-        public static readonly int PlayerCount = Pick(0x72E, 0x73E);
+        public static readonly int PlayerCount = 0x72E;
         public const int UniqueId = 0x2C;
         public const int BackgroundColour = 0x30;
         public const int ForegroundColour = 0x34;
         public const int OutlineColour = 0x38;
-        public static readonly int ContainerUniqueId = Pick(0x94, 0x9C);
-        public static readonly int LogoNumber = Pick(0x133, 0x13B);
-        public static readonly int DbTeam = Pick(0xB0, 0xB8);
+        public static readonly int ContainerUniqueId = 0x94;
+        public static readonly int LogoNumber = 0x133;
+        public static readonly int DbTeam = 0xB0;
         // Unverified legacy location inside PlayerTable, not a validated list.
-        public static readonly int PlayerListUnconfirmed = Pick(0x200, 0x208);
-        public static readonly int TeamBase = Pick(0x690, 0x6A0);
+        public static readonly int PlayerListUnconfirmed = 0x200;
+        public static readonly int TeamBase = 0x690;
     }
 
-    public static class Manager
+    public static partial class Manager
     {
-        public static readonly int Person = Pick(0x28, 0x20);
+        public static readonly int Person = 0x28;
     }
 
     public static class Rtti
@@ -344,12 +333,12 @@ internal static class Offsets
         public const int MatchSquadUnconfirmed = 0x250;
     }
 
-    public static class MatchPlayer
+    public static partial class MatchPlayer
     {
-        public static readonly int OppositionPositionKey = Pick(0xCE0, 0xCD8);
-        public const int TacticalRosterSlot = 0x1E27;
-        public const int TacticalFormationSlot = 0x1E51;
-        public static readonly int Person = Pick(0x28, 0x20);
+        public const int OppositionPositionKey = 0x1278;
+        public static readonly int TacticalRosterSlot = 0x23C7;
+        public static readonly int TacticalFormationSlot = 0x23F1;
+        public static readonly int Person = 0x28;
         // Pointer to an inline FM UTF-8 string instance. The byte length is at
         // +0x0 and zero-terminated text begins at +0x4.
         public const int ShirtName = 0x38;
@@ -367,25 +356,29 @@ internal static class Offsets
         public const int RatingContext290 = 0x290;
         public const int RatingContext298 = 0x298;
         public const int MatchTick = 0x2A8;
-        public static readonly int ShirtNumber = Pick(0xC9C, 0xC94);
-        public const int InPossessionPosition = 0xD70;
-        public const int InPossessionRoleDuty = 0xDB0;
-        public const int OutOfPossessionPosition = 0xE00;
-        public const int OutOfPossessionRoleDuty = 0xE40;
-        public const int Stats = 0x1880;
-        public const int RatingEventsBegin = 0x1AA8;
-        public const int RatingEventsEnd = 0x1AB0;
-        public const int CategoryHistoryBegin = 0x1AC0;
-        public const int CategoryHistoryEnd = 0x1AC8;
-        public const int SpecialW2C = 0x1AED;
-        public const int SpecialW2E = 0x1AEE;
-        public const int SpecialW2D = 0x1AEF;
-        public const int InternalW25 = 0x1BBC;
-        public const int InternalW24 = 0x1C48;
-        public const int RawInternalRating = 0x1D58;
-        public const int SpecialW2F = 0x1E4A;
-        public const int SpecialW30 = 0x1E4B;
-        public const int SpecialW31 = 0x1E4C;
+        public static readonly int ShirtNumber = 0x1234;
+        public const int InPossessionPosition = 0x1308;
+        public const int InPossessionRoleDuty = 0x1348;
+        public const int OutOfPossessionPosition = 0x1398;
+        public const int OutOfPossessionRoleDuty = 0x13D8;
+        public static readonly int Stats = 0x1E20;
+        // Match UI inputs, distinct from ActualPlayer profile fields.
+        public static readonly int Condition = 0x2214; // int32; UI integer percentage = raw / 10000
+        public static readonly int Sharpness = 0x1228; // int16; verified UI Sharpness getter, raw / 100 (truncate)
+        public static readonly int Morale = 0x123B; // int8; verified UI getter clamps signed value to 1..20
+        public static readonly int RatingEventsBegin = 0x2048;
+        public static readonly int RatingEventsEnd = 0x2050;
+        public static readonly int CategoryHistoryBegin = 0x2060;
+        public static readonly int CategoryHistoryEnd = 0x2068;
+        public static readonly int SpecialW2C = 0x208D;
+        public static readonly int SpecialW2E = 0x208E;
+        public static readonly int SpecialW2D = 0x208F;
+        public static readonly int InternalW25 = 0x215C;
+        public static readonly int InternalW24 = 0x21E8;
+        public static readonly int RawInternalRating = 0x22F8;
+        public static readonly int SpecialW2F = 0x23EA;
+        public static readonly int SpecialW30 = 0x23EB;
+        public static readonly int SpecialW31 = 0x23EC;
     }
 
     public static class RatingContext
@@ -396,7 +389,7 @@ internal static class Offsets
         public const int EventAdjustmentCandidate = 0x122;
         public const int SpecialCondition = 0x729;
         public const int EventCounterCandidate = 0x72A;
-        public const int MatchBackgroundInput = 0x34C4;
+        public const int MatchBackgroundInput = 0x34CC;
     }
 
     public static class RatingEvent
@@ -430,28 +423,25 @@ internal static class Offsets
         public const int Angle = 0x14; // u16; (PositionX=0, PositionY=1)=0, clockwise+
     }
 
-    public static class Person
+    public static partial class Person
     {
-        // macOS (FM27 27.0.1, from graph snapshots): the ActualPlayer part sits 0x390 before the
-        // person record; from there on (familiarities, attributes, height, value, condition,
-        // ability, morale) the layout is the same as on Windows.
-        public static readonly int ActualPlayerDelta = Pick(-0x288, -0x390);
+        public const int ActualPlayerDelta = -0x288;
         public const int Uid = 0x0C;
         // Legacy candidates: neither a gender bit/mask nor its encoding has
         // been verified for FM27. Do not infer gender from these raw bytes.
         public const int FemaleBit = 0x10;
         public const int Gender = 0x19;
-        public static readonly int FirstName = Pick(0x50, -0xF0);
-        public static readonly int SecondName = Pick(0x58, -0xE8);
-        public static readonly int CommonName = Pick(0x60, -0xE0);
-        public static readonly int Nation = Pick(0x68, -0xD8);
-        public static readonly int City = Pick(0x80, -0xC0);
+        public static readonly int FirstName = 0x50;
+        public static readonly int SecondName = 0x58;
+        public static readonly int CommonName = 0x60;
+        public static readonly int Nation = 0x68;
+        public static readonly int City = 0x80;
         // uint32 FM date: year = raw >> 16, one-based day-of-year = raw & 0x1FF.
-        public static readonly int DateOfBirth = Pick(0x88, -0xB8);
-        public static readonly int FullContract = Pick(0xA8, -0x98);
+        public static readonly int DateOfBirth = 0x88;
+        public static readonly int FullContract = 0xA8;
 
         // 64-bit player-trait bitfield spanning Person + 0xC0 through Person + 0xC7.
-        public static readonly int Traits = Pick(0xC0, -0x80);
+        public static readonly int Traits = 0xC0;
         // Bit 0 (+0xC0 bit 0, mask 0x01): Runs With Ball Down Left
         public const ulong RunsWithBallDownLeft = 1UL << 0;
         // Bit 1 (+0xC0 bit 1, mask 0x02): Runs With Ball Down Right
@@ -581,10 +571,10 @@ internal static class Offsets
         // Bit 63 (+0xC7 bit 7, mask 0x80): Plays Ball With Feet
         public const ulong PlaysBallWithFeet = 1UL << 63;
 
-        public static readonly int InternationalApps = Pick(0x134, -0xC);  //byte
-        public static readonly int InternationalGoals = Pick(0x136, -0xA); //byte
-        public static readonly int YouthApps = Pick(0x138, -0x8);          //byte
-        public static readonly int YouthGoals = Pick(0x13A, -0x6);         //byte
+        public static readonly int InternationalApps = 0x134;  //byte
+        public static readonly int InternationalGoals = 0x136; //byte
+        public static readonly int YouthApps = 0x138;          //byte
+        public static readonly int YouthGoals = 0x13A;         //byte
     }
 
     public static class Nation
@@ -772,33 +762,29 @@ internal static class Offsets
         public const int PersonalOppositionRecordSize = 3;
         public const int PositionOppositionCapacity = 25;
 
-        // macOS (FM27 27.0.1, from graph snapshots of two matches): the tactic block sits
-        // 0x18 earlier in the manager context, and inside it each std::map is 24 bytes
-        // (libc++: begin, root, size) instead of MSVC's 16, which moves everything from
-        // the formations on. The command copy follows two blocks on, as on Windows.
         public static class Context
         {
-            public static readonly int ProcessingConfiguration = Pick(0x1818, 0x1800);
-            public static readonly int CommandConfiguration = Pick(0x2768, 0x1800 + 2 * 0x7C0);
-            public static readonly int PersonalOpposition = Pick(0x16F8, 0x16E0);
-            public static readonly int PositionOppositionCount = Pick(0x1748, 0x1730);
-            public static readonly int PositionOppositionEntries = Pick(0x174C, 0x1734);
+            public const int ProcessingConfiguration = 0x1820;
+            public const int CommandConfiguration = 0x2770;
+            public const int PersonalOpposition = 0x1700;
+            public const int PositionOppositionCount = 0x1750;
+            public const int PositionOppositionEntries = 0x1754;
         }
 
         public static class Configuration
         {
-            public static readonly int Size = Pick(0x7A8, 0x7C0);
+            public const int Size = 0x7A8;
             public const int TeamInstructions = 0xE0;
             public const int TeamInstructionsSize = 16;
             public const int Name = 0xF8;
             public const int StyleKey = 0x100;
             public const int AdditionalState = 0x104;
             public const int Mentality = 0x105;
-            public static readonly int InPossession = Pick(0x118, 0x120);
-            public static readonly int OutOfPossession = Pick(0x438, 0x440);
-            public static readonly int InPossessionOverrides = Pick(0x758, 0x760);
-            public static readonly int OutOfPossessionOverrides = Pick(0x768, 0x778);
-            public static readonly int PhaseSlotMapping = Pick(0x79C, 0x7B4);
+            public const int InPossession = 0x118;
+            public const int OutOfPossession = 0x438;
+            public const int InPossessionOverrides = 0x758;
+            public const int OutOfPossessionOverrides = 0x768;
+            public const int PhaseSlotMapping = 0x79C;
         }
 
         public static class Position
@@ -826,24 +812,6 @@ internal static class Offsets
             public const int Size = 0x10;
             public const int InstructionId = 0;
             public const int RoleMask = 8;
-        }
-
-        /// <summary>
-        /// libc++ std::map, used on macOS: the map is { begin node, end node (whose left
-        /// child is the root), size }; a node is { left, right, parent, is_black, value }.
-        /// Leaves are null rather than a sentinel. The value (person key, then the
-        /// positions vector) sits at the same offsets as in the MSVC node.
-        /// </summary>
-        public static class MacOverrideTree
-        {
-            public const int Begin = 0;
-            public const int Root = 8;
-            public const int Size = 0x10;
-            public const int NodeSize = 0x40;
-            public const int Left = 0;
-            public const int Right = 8;
-            public const int PersonKey = 0x20;
-            public const int Positions = 0x28;
         }
 
         public static class OverrideTree
@@ -894,79 +862,82 @@ internal static class Offsets
         public const int StarterSubstituteFlag = 0x5C;
         public const int DistanceM = 0x68;
         public const int EventTimestamp = 0x78;
-        public const int RatingTimes100 = 0x82;
+        public const int RatingTimes100 = 0x86;
         // public const int TeamSideUnconfirmed = 0x87;
         // 255 health, 13 slight injury, 10 knee injury, 8 5w-6w injury, 11 foot injury
         // public const int InjuryStateOrSeverityCandidate = 0x88;
-        public const int OverallPhysicalCondition = 0x89;
-        public const int MatchSharpness = 0x8A;
-        public const int Goals = 0x8B;
-        public const int GoalsConceded = 0x8C;
-        public const int PenaltyAttempts = 0x8D;
-        public const int Penalties = 0x8E;
-        public const int OwnGoals = 0x8F;
-        public const int Shots = 0x90;
-        public const int ShotsOnTarget = 0x91;
-        public const int BlockedShotsUnconfirmed = 0x92;
-        public const int ClearCutChances = 0x94;
-        public const int HitWoodwork = 0x96;
-        public const int SavesHeld = 0x99;
-        public const int SavesParried = 0x9A;
-        public const int SavesTipped = 0x9B;
-        public const int DefensiveBlocks = 0x9C;
-        public const int PenaltiesFaced = 0x9D;
-        public const int PenaltiesSaved = 0x9E;
-        public const int Assists = 0x9F;
-        public const int ChancesCreated = 0xA0;
-        public const int Dribbles = 0xA1;
-        public const int Fouls = 0xA3;
-        public const int Fouled = 0xA4;
-        public const int Offsides = 0xA5;
-        public const int YellowCards = 0xA6;
-        public const int RedCards = 0xA7;
-        public const int SubbedOffMinute = 0xAA;
-        public const int SubbedOnMinute = 0xAF;
-        public const int Crosses = 0xB5;
-        public const int CrossesCompleted = 0xB6;
-        public const int Passes = 0xBA;
-        public const int PassesCompleted = 0xBB;
-        public const int KeyPasses = 0xBC;
-        public const int OpenPlayKeyPasses = 0xBD;
+        // Legacy stats bytes, no longer sampled since archive 2.12. Condition can
+        // include an upper-limit correction; sharpness rounds rather than truncates.
+        // Retained for research/old archive interpretation; use MatchPlayer inputs.
+        public const int OverallPhysicalCondition = 0x8D;
+        public const int MatchSharpness = 0x8E;
+        public const int Goals = 0x8F;
+        public const int GoalsConceded = 0x90;
+        public const int PenaltyAttempts = 0x91;
+        public const int Penalties = 0x92;
+        public const int OwnGoals = 0x93;
+        public const int Shots = 0x94;
+        public const int ShotsOnTarget = 0x95;
+        public const int BlockedShotsUnconfirmed = 0x96;
+        public const int ClearCutChances = 0x98;
+        public const int HitWoodwork = 0x9A;
+        public const int SavesHeld = 0x9D;
+        public const int SavesParried = 0x9E;
+        public const int SavesTipped = 0x9F;
+        public const int DefensiveBlocks = 0xA0;
+        public const int PenaltiesFaced = 0xA1;
+        public const int PenaltiesSaved = 0xA2;
+        public const int Assists = 0xA3;
+        public const int ChancesCreated = 0xA4;
+        public const int Dribbles = 0xA5;
+        public const int Fouls = 0xA7;
+        public const int Fouled = 0xA8;
+        public const int Offsides = 0xA9;
+        public const int YellowCards = 0xAA;
+        public const int RedCards = 0xAB;
+        public const int SubbedOffMinute = 0xAE;
+        public const int SubbedOnMinute = 0xB3;
+        public const int Crosses = 0xB9;
+        public const int CrossesCompleted = 0xBA;
+        public const int Passes = 0xBE;
+        public const int PassesCompleted = 0xBF;
+        public const int KeyPasses = 0xC0;
+        public const int OpenPlayKeyPasses = 0xC1;
         // FM27 inserts eight bytes after +0xBD; retain candidate semantics
         // for fields whose football meaning was already unconfirmed.
-        public const int TacklesAttempted = 0xC6;
-        public const int TacklesWon = 0xC7;
-        public const int KeyTackles = 0xC8;
-        public const int Aerials = 0xCA;
-        public const int AerialsWon = 0xCB;
-        public const int HeadersLost = 0xCC;
-        public const int Interceptions = 0xCF;
-        public const int ErrorsLeadingToShotOrGoalCandidate = 0xD0;
-        public const int TeamGoalsWhileOnPitch = 0xD1;
-        public const int TeamConcededWhileOnPitch = 0xD2;
-        public const int ThrowIns = 0xD3;
-        public const int Corners = 0xD4;
-        public const int DefensiveFreeKicks = 0xD5;
-        public const int AttackingFreeKicks = 0xD6;
-        public const int PossessionWon = 0xD7;
-        public const int PossessionLost = 0xD8;
-        public const int Clearances = 0xD9;
-        public const int ShotsFaced = 0xDD;
-        public const int CrossAttemptsTypeOne = 0xDF;
-        public const int CrossAttemptsTypeTwo = 0xE0;
-        public const int CrossCompletionsTypeOne = 0xE1;
-        public const int CrossCompletionsTypeTwo = 0xE2;
-        public const int ShortPassesAttemptedCandidate = 0xE4;
-        public const int LongPassesAttemptedCandidate = 0xE6;
-        public const int ShortPassesCompletedCandidate = 0xE8;
-        public const int LongPassesCompletedCandidate = 0xEA;
-        public const int PressesAttempted = 0xEC;
-        public const int PressesWon = 0xED;
-        public const int ProgressivePasses = 0xF1;
-        public const int ShotsOutsideBox = 0xF3;
-        public const int Sprints = 0xF5;
+        public const int TacklesAttempted = 0xCA;
+        public const int TacklesWon = 0xCB;
+        public const int KeyTackles = 0xCC;
+        public const int Aerials = 0xCE;
+        public const int AerialsWon = 0xCF;
+        public const int HeadersLost = 0xD0;
+        public const int Interceptions = 0xD3;
+        public const int ErrorsLeadingToShotOrGoalCandidate = 0xD4;
+        public const int TeamGoalsWhileOnPitch = 0xD5;
+        public const int TeamConcededWhileOnPitch = 0xD6;
+        public const int ThrowIns = 0xD7;
+        public const int Corners = 0xD8;
+        public const int DefensiveFreeKicks = 0xD9;
+        public const int AttackingFreeKicks = 0xDA;
+        public const int PossessionWon = 0xDB;
+        public const int PossessionLost = 0xDC;
+        public const int Clearances = 0xDD;
+        public const int ShotsFaced = 0xE1;
+        public const int CrossAttemptsTypeOne = 0xE3;
+        public const int CrossAttemptsTypeTwo = 0xE4;
+        public const int CrossCompletionsTypeOne = 0xE5;
+        public const int CrossCompletionsTypeTwo = 0xE6;
+        public const int ShortPassesAttemptedCandidate = 0xE8;
+        public const int LongPassesAttemptedCandidate = 0xEA;
+        public const int ShortPassesCompletedCandidate = 0xEC;
+        public const int LongPassesCompletedCandidate = 0xEE;
+        public const int PressesAttempted = 0xF0;
+        public const int PressesWon = 0xF1;
+        public const int ProgressivePasses = 0xF5;
+        public const int ShotsOutsideBox = 0xF7;
+        public const int Sprints = 0xF9;
 
-        // Inclusive of the highest-address player stat above (a byte at +0xF5).
-        public const int RatingInputReadableSize = 0xF6;
+        // Inclusive of the highest-address player stat above (a byte at +0xF9).
+        public const int RatingInputReadableSize = 0xFA;
     }
 }

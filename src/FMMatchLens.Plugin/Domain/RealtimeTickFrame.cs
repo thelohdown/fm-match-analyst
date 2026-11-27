@@ -114,6 +114,10 @@ internal sealed record RatingResearchPlayerWireData(
     string OutOfPossessionRoleDuty,
     sbyte SpecialConditionA,
     sbyte SpecialConditionB,
+    byte TeamAEventCounterCandidate,
+    byte TeamBEventCounterCandidate,
+    byte TeamAEventAdjustmentCandidate,
+    byte TeamBEventAdjustmentCandidate,
     int TotalEligibleDuration,
     int RatingEventsCommonLength,
     IReadOnlyList<byte[]> RatingEventsTail)
@@ -131,6 +135,8 @@ internal sealed record RatingResearchPlayerWireData(
         value.InPossessionRoleDuty.ToString(CultureInfo.InvariantCulture),
         value.OutOfPossessionRoleDuty.ToString(CultureInfo.InvariantCulture),
         value.SpecialConditionA, value.SpecialConditionB,
+        value.TeamAEventCounterCandidate, value.TeamBEventCounterCandidate,
+        value.TeamAEventAdjustmentCandidate, value.TeamBEventAdjustmentCandidate,
         value.TotalEligibleDuration, common, value.RatingEventsRaw.Skip(common).ToArray());
     }
 
@@ -362,6 +368,9 @@ internal readonly record struct PlayerTickData(
     int SavesTipped,
     float DistanceM)
 {
+    // Null for archives before 2.12; never infer live morale from profile metadata.
+    public int? Morale { get; init; }
+
     [JsonIgnore]
     public RatingResearchPlayerData? RatingResearch { get; init; }
 
@@ -379,7 +388,8 @@ internal sealed record RealtimeMatchMetadata(
     string? MatchDate = null,
     float? HalfPitchWidth = null,
     float? HalfPitchLength = null,
-    RealtimeCompetitionMetadata? Competition = null);
+    RealtimeCompetitionMetadata? Competition = null,
+    uint PomUid = 0);
 
 internal readonly record struct RealtimeCompetitionMetadata(
     uint? Uid,

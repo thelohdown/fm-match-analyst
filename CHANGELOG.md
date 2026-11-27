@@ -3,6 +3,54 @@
 
 This file records the project's important changes. Version numbers follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- Resolve player portraits, club badges, and competition logos on demand through the game's local resource index.
+
+### Removed
+
+- Removed the `Graphics.GraphicsPath` setting, plugin-side graphics XML scanning, and graphics index cache generation. Existing directory settings and `graphics-index-cache.json` files are no longer used.
+
+## [0.8.0] - 2026-11-20
+
+### Added
+
+- Added post-match report preview and PNG export, combining lineups, substitutes, passing networks, match statistics, key events, momentum and xG charts, and player-of-the-match details.
+- Added an optional Tactical Board convex-hull overlay with outfield-player coverage outlines and area labels for live matches and archive animation.
+- Added the verified match-hook fingerprint, RVA, and AOB signature for the FM27 27.1.0 Xbox Game Pass build dated 2026-11-17.
+- Added macOS platform groundwork for native memory-region queries, loaded game-plugin image discovery, and default graphics paths; full macOS capture support is not yet available.
+
+### Changed
+
+- Scaled Tactical Board player markers and the ball with pitch height, within size bounds.
+- Retained `.fmlens` archive format 2.12 and read compatibility with formats 2.1–2.12.
+
+### Fixed
+
+- Kept the home team attacking left-to-right in Tactical Board animation across halves.
+
+## [0.7.4] - 2026-11-18
+
+### Added
+
+- Added a global settings dialog and player-of-the-match display.
+- Added live condition, sharpness, and morale icons, with archive format 2.12 and read compatibility with formats 2.1–2.11.
+- Added pass-map position modes, full-time pass-map and lineup overviews, and game-aware tactical information visibility.
+
+### Changed
+
+- Unified theme configuration and refreshed dashboard visuals, chart styling, and tactical board presentation.
+- Unified heatmap rendering and reused grid-space blur results to reduce rendering work.
+- Improved FM27 rating breakdown calculations and updated the observed rating weights.
+
+### Fixed
+
+- Updated native memory offsets, player sharpness, rating inputs, and the verified match-hook fingerprint and RVA for FM27 27.1.0 (Steam build `26620374`); also registered Steam build `26577676`.
+- Distinguished interrupted match capture in the API and improved hook installation diagnostics, stopping retries after installation failures.
+- Corrected heatmap orientation.
+
 ## [0.7.3] - 2026-11-11
 
 ### Fixed

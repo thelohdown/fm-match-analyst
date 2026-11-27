@@ -31,9 +31,9 @@ internal static partial class Program
         if (args[0] == "--archive-json" && args.Length > 2) return ArchiveSummary.WriteFramesJson(args[1], args[2]);
         if (args[0] == "--serve" && args.Length > 1) return ArchiveServer.Serve(args[1], args.Length > 2 ? int.Parse(args[2]) : 0);
 
-        // Must happen before Offsets is first touched.
-        Environment.SetEnvironmentVariable("FMMATCHLENS_MAC_OFFSETS", "1");
-        if (!Offsets.IsMac) throw new InvalidOperationException("macOS offsets were not selected.");
+        // Offsets takes the macOS layout only when running on macOS (Offsets.Mac.cs).
+        if (!MacNative.IsMacOS)
+            throw new InvalidOperationException("Probe snapshots can only be read on macOS: the macOS offsets are not selected elsewhere.");
 
         var graph = GraphFile.Read(args[0]);
         var pages = GraphMemory.Map(graph);
@@ -454,7 +454,7 @@ internal static class ArchiveServer
 
         var work = Directory.CreateTempSubdirectory("fmmatchlens-serve").FullName;
         var archives = new FMMatchLens.Plugin.Services.MatchArchiveStore(Path.Combine(work, "matches"));
-        var graphics = new FMMatchLens.Plugin.Services.GraphicsAssetIndex(Path.Combine(work, "graphics"), Path.Combine(work, "graphics.json"));
+        var graphics = new FMMatchLens.Plugin.Services.GameGraphicsResolver(null);
         var timeline = new FMMatchLens.Plugin.Services.RealtimeMatchTimeline(archives, graphics);
         var server = new FMMatchLens.Plugin.Services.LocalApiServer(timeline, archives, graphics) { ReplayOf = Path.GetFileName(path) };
         server.Start();
