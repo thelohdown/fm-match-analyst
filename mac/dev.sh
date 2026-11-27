@@ -28,6 +28,8 @@
 #                          for Claude Code and Codex, build rebuilds it (needs npm)
 #                          codex builds the shared server and adds Codex configuration;
 #                          codex-config prints it (both need Python 3.11+)
+#   ./mac/dev.sh release   build the plugin and the analyst, and package them with the
+#                          tester installer as local/release/FM-Analyst-<version>.zip
 #   ./mac/dev.sh where     show where FM27 and BepInEx were found
 #
 # Paths can be overridden with FM27_DIR and BEPINEX_DIR.
@@ -142,22 +144,40 @@ cmd_setup() {
     cat "$LOCAL/game/FILE-TYPES.txt"
   fi
 
-  # The BepInEx reference DLLs are only needed to build the plugin.
-  if [ ! -d "$BEPINEX/core" ]; then
-    echo "BepInEx is not installed yet (expected $BEPINEX), so the build references were not copied."
-    echo "Install the FM27 macOS BepInEx package, launch FM27 once, then run setup again."
+  # The BepInEx reference DLLs are only needed to build the plugin. They come from the
+  # BepInEx build pinned in Directory.Build.props (the one upstream's CI compiles against),
+  # not from the game's own BepInEx: the macOS package has no INativeDetour, which the
+  # shared Windows detour code needs at compile time. Nothing from it is shipped.
+  local lib="$REPO/src/FMMatchLens.Plugin/lib" props="$REPO/Directory.Build.props"
+  local url hash tmp name actual
+  url="$(sed -n 's:.*<BepInExBuildUrl>\(.*\)</BepInExBuildUrl>.*:\1:p' "$props")"
+  hash="$(sed -n 's:.*<BepInExBuildSha256>\(.*\)</BepInExBuildSha256>.*:\1:p' "$props" | tr 'A-F' 'a-f')"
+  if [ -z "$url" ] || [ -z "$hash" ]; then
+    echo "WARNING: Directory.Build.props has no BepInEx build to download; the build references were not copied."
     return 0
   fi
-  local lib="$REPO/src/FMMatchLens.Plugin/lib"
+  tmp="$(mktemp -d)"
+  echo "downloading the BepInEx build references..."
+  if ! curl -fsSL "$url" -o "$tmp/bepinex.zip"; then
+    echo "WARNING: could not download $url; the build references were not copied."
+    rm -rf "$tmp"
+    return 0
+  fi
+  actual="$(shasum -a 256 "$tmp/bepinex.zip" | cut -d' ' -f1)"
+  if [ "$actual" != "$hash" ]; then
+    echo "WARNING: the BepInEx download does not match its expected SHA-256; the build references were not copied."
+    rm -rf "$tmp"
+    return 0
+  fi
   mkdir -p "$lib"
-  for name in BepInEx.Core.dll BepInEx.Unity.IL2CPP.dll MonoMod.RuntimeDetour.dll MonoMod.Utils.dll; do
-    if [ -f "$BEPINEX/core/$name" ]; then
-      cp "$BEPINEX/core/$name" "$lib/"
+  for name in BepInEx.Core.dll BepInEx.Unity.IL2CPP.dll Il2CppInterop.Runtime.dll MonoMod.RuntimeDetour.dll MonoMod.Utils.dll; do
+    if unzip -qjo "$tmp/bepinex.zip" "BepInEx/core/$name" -d "$lib" 2>/dev/null; then
       echo "copied $name"
     else
-      echo "WARNING: $name is missing from $BEPINEX/core"
+      echo "WARNING: $name is missing from the BepInEx build"
     fi
   done
+  rm -rf "$tmp"
 }
 
 # The .NET installer puts dotnet in /usr/local/share/dotnet and only adds it to PATH
@@ -479,6 +499,31 @@ cmd_mcp() {
   esac
 }
 
+# The alpha-tester package: pre-built plugin and extension, the installer and a README,
+# so testers need neither the repo nor .NET or Node.
+cmd_release() {
+  cmd_build
+  mcp_build --mcpb || exit 1
+  local version plugin_version name out
+  version="$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$REPO/mcp/package.json" | head -1)"
+  plugin_version="$(sed -n 's/.*<ProjectVersion>\(.*\)<\/ProjectVersion>.*/\1/p' "$REPO/Directory.Build.props" | head -1)"
+  name="FM-Analyst-$version"
+  out="$LOCAL/release/$name"
+  rm -rf "$out" "$out.zip"
+  mkdir -p "$out/files"
+  cp "$PLUGIN_DLL" "$out/files/"
+  cp "$REPO/mcp/dist/fm-match-analyst.mcpb" "$out/files/"
+  echo "$version" > "$out/files/VERSION"
+  echo "FMMatchLens $plugin_version (macOS port $(git -C "$REPO" rev-parse --short HEAD))" > "$out/files/PLUGIN_VERSION"
+  cp "$REPO/mac/release/install.command" "$out/Install FM Analyst.command"
+  chmod +x "$out/Install FM Analyst.command"
+  cp "$REPO/mac/release/README.txt" "$out/README.txt"
+  cp "$REPO/LICENSE" "$out/LICENSE.txt"
+  (cd "$LOCAL/release" && ditto -c -k --keepParent "$name" "$name.zip")
+  echo "built: $out.zip"
+  echo "Send that zip to testers. Before sending a new one, try it: unzip it and double-click the installer."
+}
+
 cmd_health() {
   local body replay
   if ! body="$(curl -sS --max-time 3 "$API")"; then
@@ -504,6 +549,7 @@ case "${1:-}" in
   dump) cmd_dump ;;
   serve) cmd_serve "${2:-}" "${3:-}" ;;
   mcp) cmd_mcp "${2:-}" ;;
+  release) cmd_release ;;
   where) need_game; echo "BepInEx: $BEPINEX" ;;
   *) sed -n '2,33p' "$0"; exit 1 ;;
 esac

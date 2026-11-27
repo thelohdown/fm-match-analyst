@@ -9,6 +9,14 @@ On macOS the plugin now runs **FMMatchLens's normal capture** with a macOS offse
 (`[macOS] Mode = capture`, the default; `./mac/dev.sh install` sets it). The local API on
 `127.0.0.1:16726` and the dashboard work as on Windows for what is mapped.
 
+**FM 27.1** (checked live on 26 Nov 2026, Steam, Apple Silicon): the match offsets, tactics and
+attributes below are the 27.1 ones, in `Memory/Offsets.Mac.cs`. Against FM's own screens in a
+Chicago v LAFC friendly, the tactic (style, mentality, both formations, all 22 roles) and one
+player's 38 attributes matched, and a full match archived with substitutions and tactical changes.
+The `macOS tactics check` and `macOS player record check` log lines say, per match, whether those
+blocks sit where expected and where tactic- or player-shaped data sits if not. The offsets noted
+further down this file are the 27.0 ones the mapping started from.
+
 | Part | Status |
 | --- | --- |
 | Hook, memory checks, Mach-O parsing, detours | Working in game (FM27 demo and full release, Steam, BepInEx be.788 macOS package) |
@@ -98,6 +106,24 @@ and formation slots (0x1E27 / 0x1E51) are as on Windows. libc++ maps are
 { begin, root, size } with nodes { left, right, parent, colour, key, value }.
 The plugin refuses a block whose formations do not decode (goalkeeper first,
 known positions), and walks override maps with the same bounds as on Windows.
+
+## Alpha testers (`./mac/dev.sh release`)
+
+`./mac/dev.sh release` builds the plugin and the analyst extension and packages
+them with `mac/release/install.command` and `mac/release/README.txt` as
+`local/release/FM-Analyst-<version>.zip`. Testers need neither the repo, .NET nor
+Node: they download the sortitoutsi BepInEx package, double-click
+"Install FM Analyst.command", paste the launch option it copies into Steam, and
+click Install in Claude Desktop. The installer finds FM27 in any Steam library,
+installs BepInEx from Downloads (a zip, or the folder Safari unzipped), clears
+macOS's quarantine flag, copies the plugin, and opens the extension. Run again,
+it updates the plugin and, after an FM update, swaps in a newer BepInEx package
+while keeping the plugins, settings and saved matches. `--uninstall` removes the
+plugin and keeps the saved matches.
+
+The installer is not signed, so macOS asks testers to allow it once (Privacy &
+Security > Open Anyway); the README says how. A signed, notarized package needs
+an Apple Developer account.
 
 ## One-time setup
 
