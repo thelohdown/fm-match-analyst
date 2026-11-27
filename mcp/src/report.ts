@@ -216,16 +216,17 @@ function header(
   options: { kicker: string; status: string; goals: Record<Side, number>; xg: Record<Side, number>; untilTick?: number; untilMinute?: number }
 ): PageHeader {
   const history = model.history()
-  const scorers = (side: Side) =>
-    history.events
-      .filter((event) => (event.type === "goal" || event.type === "own_goal") && event.tick != null && (options.untilTick == null || event.tick <= options.untilTick))
-      .filter((event) => event.team === side)
-      .map((event) => {
-        const minute = views.eventTime(model, event.tick!).minute
-        const name = surname(views.playerName(model, event.playerId) ?? "Goal")
-        return `${name}${event.type === "own_goal" ? " (og)" : ""} ${minute}`
-      })
-      .join(" · ")
+  // One entry per scorer, in the order they first scored: "Lewandowski 25', 37'".
+  const scorers = (side: Side) => {
+    const goals = new Map<string, string[]>()
+    for (const event of history.events) {
+      if (event.type !== "goal" && event.type !== "own_goal") continue
+      if (event.tick == null || event.team !== side || (options.untilTick != null && event.tick > options.untilTick)) continue
+      const name = `${surname(views.playerName(model, event.playerId) ?? "Goal")}${event.type === "own_goal" ? " (og)" : ""}`
+      goals.set(name, [...(goals.get(name) ?? []), views.eventTime(model, event.tick).minute])
+    }
+    return [...goals].map(([name, minutes]) => `${name} ${minutes.join(", ")}`).join(" · ")
+  }
   const cards = history.events
     .filter((event) => (event.type === "yellow_card" || event.type === "red_card") && event.team === sides.you && event.tick != null)
     .filter((event) => options.untilTick == null || event.tick! <= options.untilTick)
@@ -248,6 +249,7 @@ function header(
     you: { name: views.teamName(model, sides.you), goals: options.goals[sides.you], xg: options.xg[sides.you], scorers: scorers(sides.you) },
     them: { name: views.teamName(model, sides.them), goals: options.goals[sides.them], xg: options.xg[sides.them], scorers: scorers(sides.them) },
     right,
+    kits: { you: model.metadata?.[sides.you], them: model.metadata?.[sides.them] },
   }
 }
 

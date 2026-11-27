@@ -4,27 +4,69 @@
 // from the match and passes it in, together with the few lines the analyst
 // writes (the verdict, the decisions, the plan checks).
 //
-// Design rules (see the build spec): the user's team is always blue and the
-// opponent orange, on every chart and key; status is never colour alone (a glyph
-// and a word, and no red/green pair anywhere); nothing smaller than 12 px. The page
-// is static and fully local: no scripts, no requests (Inter if installed, else the
-// system font), and a Content-Security-Policy that holds it to that.
+// Design rules (see the build spec): each team keeps one colour, taken from its
+// kit (teamColors.ts), on every chart and key; status has its own green and
+// orange and is never colour alone (always a glyph and a word); nothing smaller
+// than 12 px. On screen the page follows the system's light or dark setting;
+// print is always light. The page is static and fully local: no scripts, no
+// requests (Inter if installed, else the system font), and a
+// Content-Security-Policy that holds it to that.
 
 import type { ActionCheck, TrendRow } from "./metrics"
+import { type KitSource, SURFACES, type Theme, mix, teamColours, textOn } from "./teamColors"
 
-export const YOU = "#2a78d6"
-const YOU_DARK = "#256abf"
-const YOU_LIGHT = "#b7d3f6"
-export const THEM = "#eb6834"
-const INK = "#0b0b0b"
-const SEC = "#52514e"
-const MUTED = "#6b6a66"
-const HAIR = "#e1e0d9"
-const AXIS = "#c3c2b7"
-const PANEL = "#f5f5f2"
-const PITCH_BG = "#f3f3ef"
-const PITCH_LINE = "#c3c2b7"
+// Every colour is a CSS variable, set per report and per theme by themeStyle().
+// SVG takes them through style="", never presentation attributes.
+const YOU = "var(--you)"
+const YOU_SUB = "var(--you-sub)"
+const ON_YOU = "var(--on-you)"
+const THEM = "var(--them)"
+const GOOD = "var(--good)"
+const BAD = "var(--bad)"
+const INK = "var(--ink)"
+const SEC = "var(--sec)"
+const MUTED = "var(--muted)"
+const HAIR = "var(--hair)"
+const AXIS = "var(--axis)"
+const PANEL = "var(--panel)"
+const PAGE = "var(--page)"
+const PITCH_BG = "var(--pitch)"
+const PITCH_LINE = "var(--pitch-line)"
 const WARN = "#fab219"
+
+const NEUTRALS: Record<Theme, Record<string, string>> = {
+  light: {
+    page: SURFACES.light.page, panel: SURFACES.light.panel, screen: "#e9e9e6", ink: "#0b0b0b", sec: "#52514e", muted: "#6b6a66",
+    hair: "#e1e0d9", axis: "#c3c2b7", pitch: "#f3f3ef", "pitch-line": "#c3c2b7", swatch: "rgba(82,81,78,.5)", shadow: "rgba(0,0,0,.12)",
+    good: "#15803d", bad: "#c2410c",
+  },
+  dark: {
+    page: SURFACES.dark.page, panel: SURFACES.dark.panel, screen: "#0b0e11", ink: "#eceef0", sec: "#c2c7ce", muted: "#98a1ac",
+    hair: "#2b323b", axis: "#46505a", pitch: "#16231b", "pitch-line": "#46505a", swatch: "rgba(200,205,212,.45)", shadow: "rgba(0,0,0,.5)",
+    good: "#34c77b", bad: "#fb923c",
+  },
+}
+
+/** The CSS variables for one report: light by default and for print, dark on screens set to dark. */
+export function themeStyle(kits?: PageHeader["kits"]): string {
+  const teams = teamColours(kits?.you, kits?.them)
+  const vars = (theme: Theme) => {
+    const page = SURFACES[theme].page
+    const { you, them } = teams[theme]
+    const all: Record<string, string> = {
+      ...NEUTRALS[theme],
+      you,
+      them,
+      "you-sub": mix(you, page, theme === "light" ? 0.32 : 0.5),
+      "on-you": textOn(you),
+      tint: mix(you, page, theme === "light" ? 0.06 : 0.07),
+    }
+    return Object.entries(all)
+      .map(([name, value]) => `--${name}:${value}`)
+      .join(";")
+  }
+  return `:root{${vars("light")}}\n@media screen and (prefers-color-scheme: dark){:root{${vars("dark")};color-scheme:dark}}`
+}
 const FONT = "'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif"
 const SVG_FONT = "font-family: Inter, system-ui, -apple-system, 'Segoe UI', sans-serif;"
 
@@ -43,6 +85,8 @@ export type PageHeader = {
   them: TeamHeader
   /** Up to three short lines on the right: tactics and bookings. */
   right: Array<{ team?: string; text: string }>
+  /** Each team's kit colours, for the team colours. Without them: blue and orange. */
+  kits?: { you?: KitSource; them?: KitSource }
 }
 
 export type ShotPoint = { minute: number; xg: number; goal: boolean; fromGoalLine: number; fromCentre: number }
@@ -123,11 +167,11 @@ const note = (text: string) => `<span class="note">${text}</span>`
 
 function text(x: number, y: number, value: string, options: { size?: number; color?: string; anchor?: string; weight?: number } = {}) {
   const { size = 12, color = MUTED, anchor = "start", weight = 400 } = options
-  return `<text x="${n1(x)}" y="${n1(y)}" fill="${color}" style="${SVG_FONT} font-size: ${size}px; font-weight: ${weight}; text-anchor: ${anchor}">${esc(value)}</text>`
+  return `<text x="${n1(x)}" y="${n1(y)}" style="fill: ${color}; ${SVG_FONT} font-size: ${size}px; font-weight: ${weight}; text-anchor: ${anchor}">${esc(value)}</text>`
 }
 
 function line(x1: number, y1: number, x2: number, y2: number, color = AXIS, width = 1) {
-  return `<line x1="${n1(x1)}" y1="${n1(y1)}" x2="${n1(x2)}" y2="${n1(y2)}" stroke="${color}" stroke-width="${width}"></line>`
+  return `<line x1="${n1(x1)}" y1="${n1(y1)}" x2="${n1(x2)}" y2="${n1(y2)}" stroke-width="${width}" style="stroke: ${color}"></line>`
 }
 
 /** A bar with a 4 px rounded data end and a square base. */
@@ -146,15 +190,15 @@ const CHECK = `<path d="M4.6 8.3 L7 10.6 L11.6 5.6" fill="none" stroke="#ffffff"
 const CROSS = `<path d="M5.5 5.5 L10.5 10.5 M10.5 5.5 L5.5 10.5" fill="none" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round"></path>`
 const BANG = `<path d="M8 4 V8.8" fill="none" stroke="#ffffff" stroke-width="1.9" stroke-linecap="round"></path><circle cx="8" cy="11.7" r="1.15" fill="#ffffff"></circle>`
 const STATUS: Record<PlanStatus, { color: string; glyph: string; word: string }> = {
-  seen: { color: YOU_DARK, glyph: CHECK, word: "Seen" },
-  not_seen: { color: THEM, glyph: CROSS, word: "Not seen" },
-  hurt: { color: THEM, glyph: BANG, word: "Hurt us" },
-  contained: { color: YOU_DARK, glyph: CHECK, word: "Contained" },
+  seen: { color: GOOD, glyph: CHECK, word: "Seen" },
+  not_seen: { color: BAD, glyph: CROSS, word: "Not seen" },
+  hurt: { color: BAD, glyph: BANG, word: "Hurt us" },
+  contained: { color: GOOD, glyph: CHECK, word: "Contained" },
 }
 
 function statusIcon(status: PlanStatus, size = 16) {
   const { color, glyph } = STATUS[status]
-  return `<svg width="${size}" height="${size}" viewBox="0 0 16 16" aria-hidden="true" class="icon"><circle cx="8" cy="8" r="8" fill="${color}"></circle>${glyph}</svg>`
+  return `<svg width="${size}" height="${size}" viewBox="0 0 16 16" aria-hidden="true" class="icon"><circle cx="8" cy="8" r="8" style="fill: ${color}"></circle>${glyph}</svg>`
 }
 
 function warnTriangle(size = 9) {
@@ -192,31 +236,23 @@ function flowChart(flow: PostMatchPage["flow"]): string {
   const H = 130
   const GX = 80
   const PX = 598
-  const top = 20
   const bottom = 78
   const MB = 100
   const MH = 14
   const max = flow.maxMinute
   const mx = (minute: number) => GX + (Math.min(minute, max) / max) * (PX - GX)
+  const labels = placeLabels(flow.events.slice(0, 3).map((event) => ({ label: event.label, x: mx(event.minute) })), W)
+  // A second row of labels takes the top of the xG plot.
+  const top = labels.some((label) => label.row === 2) ? 32 : 20
   const peak = Math.max(1.5, Math.ceil(Math.max(flow.totals.you, flow.totals.them, ...cumulative(flow.you), ...cumulative(flow.them)) * 2) / 2)
   const yx = (value: number) => bottom - (value / peak) * (bottom - top)
   const out: string[] = [
     `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Cumulative xG and FM momentum through the match" class="block">`,
   ]
-  // Event labels sit right of their line, or left of it when they would run into
-  // the next line or off the chart and there is room on the left.
-  const marks = flow.events
-    .slice(0, 3)
-    .map((event) => ({ ...event, x: mx(event.minute), width: event.label.length * 6.6 }))
-    .sort((left, right) => left.x - right.x)
-  let previousRight = 0
-  marks.forEach((mark, index) => {
-    out.push(line(mark.x, 15, mark.x, MB + MH + 2))
-    const next = marks[index + 1]?.x ?? W - 2
-    const left = mark.x + 5 + mark.width > next - 4 && mark.x - 5 - mark.width >= previousRight + 6
-    out.push(text(left ? mark.x - 5 : mark.x + 5, 11, mark.label, { color: SEC, anchor: left ? "end" : "start" }))
-    previousRight = left ? mark.x - 5 : mark.x + 5 + mark.width
-  })
+  for (const label of labels) {
+    out.push(line(label.x, 15, label.x, MB + MH + 2))
+    out.push(text(label.anchor === "end" ? label.x - 5 : label.x + 5, label.row === 2 ? 25 : 11, label.label, { color: SEC, anchor: label.anchor }))
+  }
   const ticks = peak <= 1.5 ? [0.5, 1, 1.5] : peak <= 3 ? [1, 2, 3].filter((tick) => tick <= peak) : [peak / 2, peak]
   for (const tick of ticks) out.push(line(GX, yx(tick), PX, yx(tick), HAIR))
   out.push(line(GX, yx(0), PX, yx(0)))
@@ -233,13 +269,13 @@ function flowChart(flow: PostMatchPage["flow"]): string {
       if (shot.goal) goals.push([mx(shot.minute), yx(total)])
     }
     d += ` H${n1(mx(max))}`
-    return { path: `<path d="${d}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"></path>`, goals, total }
+    return { path: `<path d="${d}" fill="none" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" style="stroke: ${color}"></path>`, goals, total }
   }
   const them = steps(flow.them, THEM)
   const you = steps(flow.you, YOU)
   out.push(them.path, you.path)
-  for (const [x, y] of them.goals) out.push(`<circle cx="${n1(x)}" cy="${n1(y)}" r="5" fill="${THEM}" stroke="#ffffff" stroke-width="2"></circle>`)
-  for (const [x, y] of you.goals) out.push(`<circle cx="${n1(x)}" cy="${n1(y)}" r="5" fill="${YOU}" stroke="#ffffff" stroke-width="2"></circle>`)
+  for (const [x, y] of them.goals) out.push(`<circle cx="${n1(x)}" cy="${n1(y)}" r="5" stroke-width="2" style="fill: ${THEM}; stroke: ${PAGE}"></circle>`)
+  for (const [x, y] of you.goals) out.push(`<circle cx="${n1(x)}" cy="${n1(y)}" r="5" stroke-width="2" style="fill: ${YOU}; stroke: ${PAGE}"></circle>`)
   let yYou = yx(you.total) + 4
   let yThem = yx(them.total) + 4
   if (Math.abs(yYou - yThem) < 13) {
@@ -256,7 +292,7 @@ function flowChart(flow: PostMatchPage["flow"]): string {
     const x1 = mx(block.to)
     const w = Math.min(22, Math.max(4, x1 - x0 - 4))
     const x = x0 + (x1 - x0 - w) / 2
-    out.push(`<path d="${barPath(x, w, MB, (Math.min(Math.abs(block.value), 0.8) / 0.8) * MH, block.value > 0)}" fill="${block.value > 0 ? YOU : THEM}"></path>`)
+    out.push(`<path d="${barPath(x, w, MB, (Math.min(Math.abs(block.value), 0.8) / 0.8) * MH, block.value > 0)}" style="fill: ${block.value > 0 ? YOU : THEM}"></path>`)
   }
   out.push(line(GX, MB, PX, MB))
   const axis: Array<[number, string]> = [[0, "0'"], [15, "15'"], [30, "30'"], [45, "HT"], [60, "60'"], [75, "75'"], [90, "90'"]]
@@ -264,6 +300,39 @@ function flowChart(flow: PostMatchPage["flow"]): string {
   for (const [minute, label] of axis) if (minute <= max) out.push(text(mx(minute), H - 2, label, { anchor: "middle" }))
   out.push("</svg>")
   return out.join("")
+}
+
+type PlacedLabel = { label: string; x: number; row: 1 | 2; anchor: "start" | "end" }
+
+/**
+ * Event labels beside their lines. On the top row a label sits right of its line,
+ * or left of it when it would run into the next line; failing both, it may run
+ * past the next line (the lines start below the top row). A label with no room
+ * on the top row drops to a second row, clear of every other line.
+ */
+export function placeLabels(marks: Array<{ label: string; x: number }>, width: number): PlacedLabel[] {
+  const sorted = [...marks].sort((left, right) => left.x - right.x)
+  const taken: Array<{ row: 1 | 2; from: number; to: number }> = []
+  const free = (row: 1 | 2, from: number, to: number) =>
+    from >= 0 && to <= width - 2 && taken.every((span) => span.row !== row || to + 6 <= span.from || from >= span.to + 6)
+  const clearOfLines = (self: number, from: number, to: number) =>
+    sorted.every((mark, index) => index === self || mark.x < from - 3 || mark.x > to + 3)
+  return sorted.map((mark, index) => {
+    const span = mark.label.length * 6.6
+    const right = { from: mark.x + 5, to: mark.x + 5 + span }
+    const left = { from: mark.x - 5 - span, to: mark.x - 5 }
+    const next = sorted[index + 1]?.x ?? Number.POSITIVE_INFINITY
+    const options: Array<[1 | 2, "start" | "end", { from: number; to: number }, boolean]> = [
+      [1, "start", right, right.to <= next - 4],
+      [1, "end", left, true],
+      [1, "start", right, true],
+      [2, "start", right, clearOfLines(index, right.from, right.to)],
+      [2, "end", left, clearOfLines(index, left.from, left.to)],
+    ]
+    const [row, anchor, chosen] = options.find(([row, , at, ok]) => ok && free(row, at.from, at.to)) ?? [1, "start", right]
+    taken.push({ row, ...chosen })
+    return { label: mark.label, x: mark.x, row, anchor }
+  })
 }
 
 function cumulative(shots: ShotPoint[]): number[] {
@@ -282,15 +351,15 @@ function halfPitch(shots: ShotPoint[], color: string, label: string): string {
   const H = Math.round(deep * s) + 2
   const sx = (fromCentre: number) => (fromCentre + across / 2) * s
   const sy = (fromGoalLine: number) => 2 + fromGoalLine * s
-  const ln = `fill="none" stroke="${PITCH_LINE}" stroke-width="1"`
+  const ln = `fill="none" stroke-width="1" style="stroke: ${PITCH_LINE}"`
   const arc = Math.sqrt(9.15 ** 2 - 5.5 ** 2)
   const out = [
     `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(label)}" class="block">`,
-    `<rect x="0" y="2" width="${W}" height="${H - 2}" fill="${PITCH_BG}"></rect>`,
+    `<rect x="0" y="2" width="${W}" height="${H - 2}" style="fill: ${PITCH_BG}"></rect>`,
     `<rect x="${n1(sx(-20.16))}" y="2" width="${n1(40.32 * s)}" height="${n1(16.5 * s)}" ${ln}></rect>`,
     `<rect x="${n1(sx(-9.16))}" y="2" width="${n1(18.32 * s)}" height="${n1(5.5 * s)}" ${ln}></rect>`,
     `<path d="M${n1(sx(-arc))},${n1(sy(16.5))} A${n1(9.15 * s)},${n1(9.15 * s)} 0 0 0 ${n1(sx(arc))},${n1(sy(16.5))}" ${ln}></path>`,
-    `<circle cx="${n1(sx(0))}" cy="${n1(sy(11))}" r="1.3" fill="${PITCH_LINE}"></circle>`,
+    `<circle cx="${n1(sx(0))}" cy="${n1(sy(11))}" r="1.3" style="fill: ${PITCH_LINE}"></circle>`,
     line(0, 2, W, 2, PITCH_LINE),
     line(sx(-3.66), 1.5, sx(3.66), 1.5, SEC, 3),
   ]
@@ -305,8 +374,8 @@ function halfPitch(shots: ShotPoint[], color: string, label: string): string {
     const r = 4 + 8 * Math.sqrt(Math.max(shot.xg, 0))
     out.push(
       shot.goal
-        ? `<circle cx="${n1(shot.x)}" cy="${n1(shot.y)}" r="${n1(r)}" fill="${color}" stroke="#ffffff" stroke-width="2"></circle>`
-        : `<circle cx="${n1(shot.x)}" cy="${n1(shot.y)}" r="${n1(r)}" fill="${color}" fill-opacity="0.16" stroke="${color}" stroke-width="1.5"></circle>`
+        ? `<circle cx="${n1(shot.x)}" cy="${n1(shot.y)}" r="${n1(r)}" stroke-width="2" style="fill: ${color}; stroke: ${PAGE}"></circle>`
+        : `<circle cx="${n1(shot.x)}" cy="${n1(shot.y)}" r="${n1(r)}" fill-opacity="0.16" stroke-width="1.5" style="fill: ${color}; stroke: ${color}"></circle>`
     )
   }
   out.push("</svg>")
@@ -375,10 +444,10 @@ function shapePitch(players: PitchPlayer[], links: PassLink[]): string {
   const py = (width: number) => (width / 100) * PH
   const sxm = PW / 105
   const sym = PH / 68
-  const ln = `fill="none" stroke="${PITCH_LINE}" stroke-width="1"`
+  const ln = `fill="none" stroke-width="1" style="stroke: ${PITCH_LINE}"`
   const out = [
     `<svg width="${PW + 4}" height="${PH}" viewBox="0 0 ${PW + 4} ${PH}" role="img" aria-label="Average positions on the ball, attacking right, with the main passing links" class="block">`,
-    `<rect x="2" y="0" width="${PW}" height="${PH}" fill="${PITCH_BG}"></rect>`,
+    `<rect x="2" y="0" width="${PW}" height="${PH}" style="fill: ${PITCH_BG}"></rect>`,
     `<rect x="2.5" y="0.5" width="${PW - 1}" height="${PH - 1}" ${ln}></rect>`,
     line(2 + PW / 2, 0, 2 + PW / 2, PH, PITCH_LINE),
     `<circle cx="${2 + PW / 2}" cy="${PH / 2}" r="${n1(9.15 * sxm)}" ${ln}></circle>`,
@@ -399,7 +468,7 @@ function shapePitch(players: PitchPlayer[], links: PassLink[]): string {
     const b = players[link.b]
     if (!a || !b) continue
     out.push(
-      `<line x1="${n1(px(a.depth))}" y1="${n1(py(a.width))}" x2="${n1(px(b.depth))}" y2="${n1(py(b.width))}" stroke="${SEC}" stroke-opacity="0.38" stroke-linecap="round" stroke-width="${n1(1 + (link.passes / most) * 4)}"></line>`
+      `<line x1="${n1(px(a.depth))}" y1="${n1(py(a.width))}" x2="${n1(px(b.depth))}" y2="${n1(py(b.width))}" stroke-opacity="0.38" stroke-linecap="round" stroke-width="${n1(1 + (link.passes / most) * 4)}" style="stroke: ${SEC}"></line>`
     )
   }
   for (const light of [true, false]) {
@@ -407,8 +476,8 @@ function shapePitch(players: PitchPlayer[], links: PassLink[]): string {
       if (player.light !== light) continue
       const x = px(player.depth)
       const y = py(player.width)
-      out.push(`<circle cx="${n1(x)}" cy="${n1(y)}" r="9" fill="${light ? YOU_LIGHT : YOU_DARK}" stroke="#ffffff" stroke-width="2"></circle>`)
-      out.push(text(x, y + 4, player.number, { size: 11.5, color: light ? INK : "#ffffff", anchor: "middle", weight: 700 }))
+      out.push(`<circle cx="${n1(x)}" cy="${n1(y)}" r="9" stroke-width="2" style="fill: ${light ? YOU_SUB : YOU}; stroke: ${PAGE}"></circle>`)
+      out.push(text(x, y + 4, player.number, { size: 11.5, color: light ? INK : ON_YOU, anchor: "middle", weight: 700 }))
     }
   }
   out.push("</svg>")
@@ -419,7 +488,7 @@ function shapeBlock(page: PostMatchPage): string {
   const legend = [
     `<b>Attacking →</b>`,
     `<span class="swatchline"></span> Main passing links`,
-    `<span class="swatchdot" style="background: ${YOU_LIGHT}"></span> Under 60 minutes`,
+    `<span class="swatchdot" style="background: ${YOU_SUB}"></span> Under 60 minutes`,
     `${warnTriangle(10)} Condition at the whistle ${page.conditionFlag}% or lower`,
   ]
     .map((item) => `<p class="small sec tight">${item}</p>`)
@@ -467,7 +536,7 @@ function momentumStrip(blocks: MomentumBlock[], halfEnd: number): string {
     const x0 = mx(block.from)
     const x1 = mx(block.to)
     const w = Math.min(18, Math.max(4, x1 - x0 - 4))
-    out.push(`<path d="${barPath(x0 + (x1 - x0 - w) / 2, w, MB, (Math.min(Math.abs(block.value), 0.8) / 0.8) * MH, block.value > 0)}" fill="${block.value > 0 ? YOU : THEM}"></path>`)
+    out.push(`<path d="${barPath(x0 + (x1 - x0 - w) / 2, w, MB, (Math.min(Math.abs(block.value), 0.8) / 0.8) * MH, block.value > 0)}" style="fill: ${block.value > 0 ? YOU : THEM}"></path>`)
   }
   out.push(line(G, MB, PX, MB))
   for (const [minute, label] of [[0, "0'"], [15, "15'"], [30, "30'"]] as Array<[number, string]>) out.push(text(mx(minute), H - 2, label, { anchor: "middle" }))
@@ -509,9 +578,9 @@ const STYLE = `
 html,body{margin:0}
 body{font-family:${FONT};color:${INK};-webkit-print-color-adjust:exact;print-color-adjust:exact}
 @page{size:11in 8.5in;margin:0}
-@media screen{body{background:#e9e9e6;padding:24px}.page{margin:0 auto;box-shadow:0 1px 3px rgba(0,0,0,.12)}}
+@media screen{body{background:var(--screen);padding:24px}.page{margin:0 auto;box-shadow:0 1px 3px var(--shadow)}}
 @media print{body{background:#fff;padding:0}.page{box-shadow:none}}
-.page{width:1056px;height:816px;padding:40px;background:#fff;display:flex;flex-direction:column;overflow:hidden;page-break-after:always}
+.page{width:1056px;height:816px;padding:40px;background:${PAGE};display:flex;flex-direction:column;overflow:hidden;page-break-after:always}
 p{margin:0}
 h2{margin:0;font-size:12px;line-height:18px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:${INK}}
 h3{margin:0}
@@ -533,7 +602,7 @@ b,.strong{font-weight:600;color:${INK}}
 .stack8{display:flex;flex-direction:column;gap:8px}
 .row10{display:flex;gap:10px;align-items:flex-start;margin-bottom:8px}
 .grow{flex:1;min-width:0}
-header.top{height:66px;border-bottom:1px solid ${AXIS};padding-bottom:10px;display:grid;grid-template-columns:280px minmax(0,1fr) 280px;align-items:end;gap:16px;flex-shrink:0}
+header.top{height:66px;padding-bottom:10px;background:linear-gradient(90deg,${YOU} 0,${YOU} 50%,${THEM} 50%,${THEM} 100%) 0 100%/100% 3px no-repeat;display:grid;grid-template-columns:280px minmax(0,1fr) 280px;align-items:end;gap:16px;flex-shrink:0}
 header .col{display:flex;flex-direction:column;gap:2px;min-width:0}
 header .right{text-align:right}
 header .right p{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -545,8 +614,8 @@ header .right p{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .score .small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .big{font-size:40px;line-height:40px;font-weight:700;letter-spacing:-.01em}
 .verdict{height:68px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px;margin-top:12px;flex-shrink:0}
-.verdict>div{background:${PANEL};border-radius:6px;padding:8px 12px;display:flex;gap:10px;align-items:flex-start;overflow:hidden}
-.verdict .n{font-size:20px;line-height:22px;font-weight:700;color:${MUTED};width:14px;flex-shrink:0}
+.verdict>div{background:var(--tint);border-radius:6px;padding:8px 12px;display:flex;gap:10px;align-items:flex-start;overflow:hidden}
+.verdict .n{font-size:20px;line-height:22px;font-weight:700;color:${YOU};width:14px;flex-shrink:0}
 .verdict .t{font-size:14px;line-height:18px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .verdict .d{font-size:12px;line-height:16px;color:${SEC};display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .row2{height:156px;display:grid;grid-template-columns:644px 312px;gap:20px;margin-top:12px;flex-shrink:0}
@@ -571,7 +640,7 @@ header .right p{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .plan.wrap .ev,.plan li.wrap .ev{white-space:normal}
 .clamp2{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .legend{padding-top:2px;min-width:0}
-.swatchline{display:inline-block;width:16px;height:3px;border-radius:2px;background:rgba(82,81,78,.5);vertical-align:middle}
+.swatchline{display:inline-block;width:16px;height:3px;border-radius:2px;background:var(--swatch);vertical-align:middle}
 .swatchdot{display:inline-block;width:10px;height:10px;border-radius:50%;vertical-align:middle}
 .ptable{width:100%;border-collapse:collapse;font-size:12px;line-height:16px;font-variant-numeric:tabular-nums}
 .ptable th{padding:0 0 2px;font-weight:600;color:${MUTED};text-align:right;border-bottom:1px solid ${AXIS}}
@@ -580,7 +649,7 @@ header .right p{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ptable .cond{padding-left:6px;width:48px}
 .decision{background:${PANEL};border-radius:8px;padding:7px 14px;display:grid;grid-template-columns:26px 190px minmax(0,1fr) 280px;column-gap:16px;align-items:start}
 .decision h3{font-size:15px;line-height:19px;font-weight:700;padding-top:3px;text-wrap:balance}
-.num-badge{width:26px;height:26px;border-radius:50%;background:${INK};color:#fff;font-size:14px;line-height:26px;font-weight:700;text-align:center}
+.num-badge{width:26px;height:26px;border-radius:50%;background:${YOU};color:${ON_YOU};font-size:14px;line-height:26px;font-weight:700;text-align:center}
 .ev13{font-size:13px;line-height:18px;color:${SEC};display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .opt{font-size:13px;line-height:18px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .mid3{height:262px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px;margin-top:14px;flex-shrink:0}
@@ -608,7 +677,7 @@ header .right p{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .take h3{font-size:15px;line-height:20px;font-weight:700;margin-left:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .klabel{font-size:12px;line-height:16px;font-weight:600;color:${MUTED};margin-top:4px}
 .ktext{font-size:13px;line-height:18px;color:${SEC};display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-.next{margin-top:8px;background:#fff;border-radius:6px;padding:4px 10px 6px;border-left:3px solid ${INK}}
+.next{margin-top:8px;background:${PAGE};border-radius:6px;padding:4px 10px 6px;border-left:3px solid ${INK}}
 .ntext{font-size:13px;line-height:18px;font-weight:600;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .kt{margin-top:auto;padding-top:6px;font-size:12px;line-height:16px;color:${SEC};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tw{font-weight:600;white-space:nowrap}
@@ -626,14 +695,14 @@ header .right p{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ttable4{width:100%;border-collapse:collapse;table-layout:fixed;font-size:12px;line-height:22px;font-variant-numeric:tabular-nums}
 .ttable4 thead th{font-weight:600;color:${INK};line-height:18px;border-bottom:1px solid ${AXIS};text-align:right;white-space:nowrap}
 .ttable4 th{padding:0;text-align:left;font-weight:400;color:${SEC};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ttable4 th:nth-child(2),.ttable4 td:nth-child(2){width:62px}
+.ttable4 th:nth-child(2),.ttable4 td:nth-child(2){width:72px}
 .ttable4 th:nth-child(3),.ttable4 td:nth-child(3){width:50px}
 .ttable4 th:nth-child(4),.ttable4 td:nth-child(4){width:64px}
 .ttable4 td{padding:0;text-align:right;white-space:nowrap}
 .last{margin-top:12px}
 `
 
-function htmlDocument(title: string, body: string): string {
+function htmlDocument(title: string, body: string, kits?: PageHeader["kits"]): string {
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -641,7 +710,7 @@ function htmlDocument(title: string, body: string): string {
 <meta name="viewport" content="width=1104">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'">
 <title>${esc(title)}</title>
-<style>${STYLE}</style>
+<style>${themeStyle(kits)}\n${STYLE}</style>
 </head>
 <body>
 ${body}
@@ -655,23 +724,23 @@ ${body}
 
 const ARROW = `<path d="M4.5 8 H11 M8.2 5.2 L11 8 L8.2 10.8" fill="none" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>`
 const TAGS: Record<TakeawayTag, { color: string; glyph: string; word: string }> = {
-  keep: { color: YOU_DARK, glyph: CHECK, word: "Keep" },
-  fix: { color: THEM, glyph: BANG, word: "Fix" },
+  keep: { color: GOOD, glyph: CHECK, word: "Keep" },
+  fix: { color: BAD, glyph: BANG, word: "Fix" },
   try: { color: MUTED, glyph: ARROW, word: "Try" },
 }
 const tagIcon = (tag: TakeawayTag, size = 16) =>
-  `<svg width="${size}" height="${size}" viewBox="0 0 16 16" aria-hidden="true" class="icon"><circle cx="8" cy="8" r="8" fill="${TAGS[tag].color}"></circle>${TAGS[tag].glyph}</svg>`
+  `<svg width="${size}" height="${size}" viewBox="0 0 16 16" aria-hidden="true" class="icon"><circle cx="8" cy="8" r="8" style="fill: ${TAGS[tag].color}"></circle>${TAGS[tag].glyph}</svg>`
 const AREA_WORD = { tactic: "Tactic", training: "Training", selection: "Selection", recruitment: "Recruitment" } as const
 const OUTLOOK_WORD = { rest: "Rest", start: "Start", watch: "Watch", form: "Form dip" } as const
 const VERDICT_MARK: Record<NonNullable<TrendRow["verdict"]>, { glyph: string; word: string; color: string }> = {
-  better: { glyph: "▲", word: "Better", color: YOU_DARK },
-  worse: { glyph: "▼", word: "Worse", color: THEM },
+  better: { glyph: "▲", word: "Better", color: GOOD },
+  worse: { glyph: "▼", word: "Worse", color: BAD },
   same: { glyph: "–", word: "Same", color: MUTED },
 }
 const CHECK_MARK: Record<ActionCheck["status"], { word: string; color: string }> = {
-  done: { word: "Done", color: YOU_DARK },
+  done: { word: "Done", color: GOOD },
   "not yet": { word: "Not yet", color: MUTED },
-  worse: { word: "Worse", color: THEM },
+  worse: { word: "Worse", color: BAD },
   "no measure": { word: "–", color: MUTED },
 }
 
@@ -758,7 +827,7 @@ ${plansBlock(page)}
 ${shapeBlock(page)}
 </div>
 </main>`
-  return htmlDocument(`Post-match report: ${page.header.you.name} ${page.header.you.goals}-${page.header.them.goals} ${page.header.them.name}`, body)
+  return htmlDocument(`Post-match report: ${page.header.you.name} ${page.header.you.goals}-${page.header.them.goals} ${page.header.them.name}`, body, page.header.kits)
 }
 
 export function halfTimeHtml(page: HalfTimePage): string {
@@ -779,5 +848,5 @@ ${turnBlock(page)}
 </div>
 <div style="margin-top: 14px">${peopleBlock(page)}</div>
 </main>`
-  return htmlDocument(`Half-time report: ${page.header.you.name} ${page.header.you.goals}-${page.header.them.goals} ${page.header.them.name}`, body)
+  return htmlDocument(`Half-time report: ${page.header.you.name} ${page.header.you.goals}-${page.header.them.goals} ${page.header.them.name}`, body, page.header.kits)
 }
