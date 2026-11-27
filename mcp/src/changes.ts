@@ -207,7 +207,7 @@ export function changesReport(model: MatchModel, sides: readonly Side[], note?: 
   if (note) result.note = note
   if (changes.length === 0) {
     result.changes = []
-    result.summary = model.tacticVersions.length === 0 ? "The tactic was not captured for this match, so changes cannot be tracked." : "No tactical changes during the match so far."
+    result.summary = model.tacticVersions.length === 0 ? `${model.tacticProblem ? "The tactic couldn't be read for this version of FM" : "The tactic was not captured for this match"}, so changes cannot be tracked.` : "No tactical changes during the match so far."
     return result
   }
   result.changes = changes

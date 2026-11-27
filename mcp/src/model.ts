@@ -21,6 +21,7 @@ import type {
 } from "@/api/realtimeMatch"
 import { HistoricalDerivations } from "@/api/replay/replayDerivations"
 import { TacticalWireState } from "@/components/formation/tactics"
+import { decodeAssignment } from "@/components/formation/formationProjection"
 import type { TacticalConfiguration, TacticalSnapshot } from "@/types/match"
 
 /** The dashboard's position heatmaps: not used here, and about a fifth of the load time. */
@@ -178,6 +179,38 @@ export type WindowSelection = {
 }
 
 const POSITION_SAMPLE_EVERY_TICKS = TICKS_PER_SECOND
+/**
+ * Ticks of live play (a team in possession, the ball moving and the match clock running)
+ * before a period after the second half counts as extra time. After full time FM keeps
+ * ticking while the players walk off; FM 27.1 also keeps the last team in possession then,
+ * and the ball can roll on for several seconds, but the clock no longer runs.
+ */
+const EXTRA_TIME_PLAY_TICKS = 20
+/** Share of roles and positions that may fail to decode before a captured tactic is not trusted. */
+const MAX_UNKNOWN_TACTIC_SHARE = 0.25
+
+/**
+ * Why a captured tactic can't be trusted, or undefined when it looks like a real one. When FM
+ * patches move the tactic in memory, the capture reads other data as role and position codes,
+ * which decode to nothing FM has ("Unknown (0x...)"), along with nonsense instructions.
+ */
+export function unreadableTactic(tactics: TacticalSnapshot): string | undefined {
+  let slots = 0
+  let unknown = 0
+  for (const side of ["home", "away"] as const) {
+    const config = tactics[side]?.processing
+    if (!config) continue
+    for (const [positions, inPossession] of [[config.inPossession, true], [config.outOfPossession, false]] as const) {
+      for (const position of positions ?? []) {
+        slots++
+        const assignment = decodeAssignment(position.positionMask, position.roleDuty, inPossession)
+        if (!assignment || assignment.role.startsWith("Unknown") || assignment.position.startsWith("Unknown")) unknown++
+      }
+    }
+  }
+  if (slots === 0 || unknown / slots <= MAX_UNKNOWN_TACTIC_SHARE) return undefined
+  return `${unknown} of ${slots} captured roles and positions are not ones FM has`
+}
 /** Everyone's position is kept on every tick with the ball this close to a goal line (metres), to read the moment of a shot. */
 const GOAL_AREA_DEPTH_M = 35
 
@@ -193,6 +226,8 @@ export class MatchModel {
   last?: RealtimeFrame
   /** The latest tactic snapshot FMMatchLens captured (sampled about once a game minute). */
   tactics?: TacticalSnapshot
+  /** Why the captured tactic was set aside, when every snapshot so far failed unreadableTactic. */
+  tacticProblem?: string
   readonly tacticVersions: TacticVersion[] = []
   readonly possession = new PossessionTracker()
   readonly shapeSamples: ShapeSample[] = []
@@ -205,7 +240,8 @@ export class MatchModel {
 
   private readonly tacticWire = new TacticalWireState()
   private readonly periodStartTick = new Map<number, number>([[1, 0]])
-  private readonly possessionSeen = new Set<number>()
+  /** Per period, ticks of live play (see EXTRA_TIME_PLAY_TICKS). */
+  private readonly livePlayTicks = new Map<number, number>()
   private current?: Bucket
   private lastEndState?: StatState
   private initialLineupKnown = false
@@ -253,11 +289,17 @@ export class MatchModel {
     if (previous && frame.period > previous.period && !this.periodStartTick.has(frame.period)) {
       this.periodStartTick.set(frame.period, frame.tick)
     }
-    if (frame.possessionTeam != null) this.possessionSeen.add(frame.period)
-    // After full time FM keeps ticking in a later period with nobody in
-    // possession while the players walk off. Those frames only update the
-    // final stats.
-    const postMatch = frame.period >= 3 && !this.possessionSeen.has(frame.period)
+    const ballMoved =
+      previous !== undefined &&
+      (frame.ballXCentimeters !== previous.ballXCentimeters || frame.ballYCentimeters !== previous.ballYCentimeters)
+    // The match clock stands still during the walk-off, even while the ball rolls on.
+    const clockRan = previous !== undefined && frame.displayTick !== previous.displayTick
+    if (frame.possessionTeam != null && ballMoved && clockRan) {
+      this.livePlayTicks.set(frame.period, (this.livePlayTicks.get(frame.period) ?? 0) + 1)
+    }
+    // After full time FM keeps ticking in a later period while the players
+    // walk off. Those frames only update the final stats.
+    const postMatch = !this.isPlayedPeriod(frame.period)
     const clock = postMatch ? this.lastClockSeconds : this.clockSecondsAt(frame)
 
     if (!postMatch) {
@@ -285,6 +327,14 @@ export class MatchModel {
   }
 
   private trackTactics(tactics: TacticalSnapshot, tick: number) {
+    // A snapshot read from the wrong place is skipped; if none can be trusted,
+    // the match is treated as having no captured tactic (tacticProblem says why).
+    const problem = unreadableTactic(tactics)
+    if (problem) {
+      if (!this.tactics) this.tacticProblem = problem
+      return
+    }
+    this.tacticProblem = undefined
     this.tactics = tactics
     for (const side of SIDES) {
       const config = tactics[side]?.processing
@@ -341,13 +391,18 @@ export class MatchModel {
     return Math.max(periodStartSeconds(frame.period), frame.displayTick / TICKS_PER_SECOND)
   }
 
+  /** Halves always count; a later period only once it has seen live play (extra time). */
+  private isPlayedPeriod(period: number): boolean {
+    return period < 3 || (this.livePlayTicks.get(period) ?? 0) >= EXTRA_TIME_PLAY_TICKS
+  }
+
   /** Period and clock for an engine tick, e.g. of an event. */
   clockAtTick(tick: number): { period: number; seconds: number } {
     let period = 1
     let start = 0
     for (const [candidate, candidateStart] of this.periodStartTick) {
-      // A period with nobody ever in possession is the post-match walk-off.
-      if (candidate >= 3 && !this.possessionSeen.has(candidate)) continue
+      // A later period without live play is the post-match walk-off.
+      if (!this.isPlayedPeriod(candidate)) continue
       if (candidate > period && tick >= candidateStart) {
         period = candidate
         start = candidateStart

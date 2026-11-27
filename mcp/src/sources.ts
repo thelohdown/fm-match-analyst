@@ -165,14 +165,16 @@ export function archiveFolders(): string[] {
   // Running from the repository (mcp/dist/server.mjs): ./mac/dev.sh dump copies archives to local/archives.
   try {
     const here = dirname(fileURLToPath(import.meta.url))
-    candidates.push(resolve(here, "../../local/archives"))
+    // Only the built bundle: tests (src/) choose their archive folders themselves.
+    if (basename(here) === "dist") candidates.push(resolve(here, "../../local/archives"))
   } catch {
     // Not running from a file.
   }
   return [...new Set(candidates)]
 }
 
-const FINISHED_NAME = /^(\d{4}-\d{2}-\d{2})-(.+)-vs-(.+)-(\d+)-(\d+)\.fmlens$/
+// FMMatchLens adds "_1", "_2" ... when the same fixture is saved again (a replayed match).
+const FINISHED_NAME = /^(\d{4}-\d{2}-\d{2})-(.+)-vs-(.+)-(\d+)-(\d+)(?:_\d+)?\.fmlens$/
 
 export async function listArchives(): Promise<ArchiveEntry[]> {
   const entries: ArchiveEntry[] = []
@@ -225,14 +227,49 @@ export async function findArchive(query: string): Promise<ArchiveEntry | undefin
 }
 
 const archiveCache = new Map<string, { modified: string; model: MatchModel }>()
+/** Archives that failed to read, so a broken file isn't re-read on every question. */
+const unreadable = new Map<string, { modified: string; problem: string }>()
 
 export async function loadArchive(entry: ArchiveEntry): Promise<MatchModel> {
   const cached = archiveCache.get(entry.path)
   if (cached && cached.modified === entry.modified) return cached.model
-  const model = await readArchive(entry)
+  const failed = unreadable.get(entry.path)
+  if (failed && failed.modified === entry.modified) throw new Error(failed.problem)
+  let model: MatchModel
+  try {
+    model = await readArchive(entry)
+  } catch (error) {
+    const problem = archiveProblem(error)
+    unreadable.set(entry.path, { modified: entry.modified, problem })
+    throw new Error(problem)
+  }
+  unreadable.delete(entry.path)
   archiveCache.clear() // keep one archive in memory
   archiveCache.set(entry.path, { modified: entry.modified, model })
   return model
+}
+
+/** Why an archive couldn't be read, if loadArchive has already tried and failed. */
+export function knownProblem(entry: ArchiveEntry): string | undefined {
+  const failed = unreadable.get(entry.path)
+  return failed && failed.modified === entry.modified ? failed.problem : undefined
+}
+
+/** A reading error in words a player can act on. */
+export function archiveProblem(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error)
+  const structure = /Unsupported archive structure (\d+\.\d+)/.exec(message)
+  if (structure) {
+    return (
+      `it was saved in a newer archive format (${structure[1]}) than this version of FM Match Analyst can read. ` +
+      "Updating the FM Match Analyst extension fixes this; the match itself is safe in the file"
+    )
+  }
+  if (/no (recoverable )?complete match frames/i.test(message)) {
+    return "it holds no complete match data (the match was probably left or FM closed right after kick-off)"
+  }
+  if (/ENOENT/.test(message)) return "the file is no longer there"
+  return message
 }
 
 /** Reads an archive without touching the cache (for looking across past matches). */

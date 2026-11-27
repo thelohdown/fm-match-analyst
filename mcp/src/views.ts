@@ -543,7 +543,12 @@ export function substitutionList(model: MatchModel) {
 function dataNotes(model: MatchModel, source: SourceInfo): string[] {
   const notes: string[] = []
   const anyPosition = model.metadata?.players.some((player) => player.position)
-  if (!anyPosition && !model.tactics) {
+  if (model.tacticProblem) {
+    notes.push(
+      `The tactic couldn't be read for this match (${model.tacticProblem}): FMMatchLens's memory map doesn't fit this version of FM yet. ` +
+        "Roles, mentality and instructions are left out, and positions are inferred from where players actually stood. Ask the user for their tactic if it matters."
+    )
+  } else if (!anyPosition && !model.tactics) {
     notes.push(
       "Player positions, roles and tactics were not captured for this match; positions are inferred from where players actually stood."
     )
@@ -923,7 +928,10 @@ export function tactic(model: MatchModel, choice: TeamChoice | undefined) {
     return {
       available: false,
       reason:
-        "FMMatchLens did not capture a tactic for this match. Ask the user for their formation, roles, mentality and instructions, or a screenshot of the tactics screen.",
+        (model.tacticProblem
+          ? `FMMatchLens's tactic capture doesn't fit this version of FM yet (${model.tacticProblem}), so it was set aside rather than shown wrong.`
+          : "FMMatchLens did not capture a tactic for this match.") +
+        " Ask the user for their formation, roles, mentality and instructions, or a screenshot of the tactics screen.",
       inferredShape: "get_shape shows where each player actually played.",
     }
   }

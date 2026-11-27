@@ -388,7 +388,9 @@ export function defaultRoleWindow(model: MatchModel, side: Side): WindowSelectio
 
 export function roleReport(model: MatchModel, side: Side, selection: WindowSelection) {
   if (!model.tactics) {
-    return { note: "The tactic was not captured for this match, so roles and instructions cannot be checked. Ask the user for the roles if it matters." }
+    return {
+      note: `${model.tacticProblem ? "The tactic couldn't be read for this version of FM" : "The tactic was not captured for this match"}, so roles and instructions cannot be checked. Ask the user for the roles if it matters.`,
+    }
   }
   const evidence = playerEvidence(model, side, selection)
   const team = teamContext(evidence)

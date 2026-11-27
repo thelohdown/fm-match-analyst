@@ -1,9 +1,17 @@
 // Team figures per match, the trend across saved matches, and carry-forward actions
 // saved with one report and checked at the next match.
-import { existsSync, mkdtempSync, readFileSync } from "node:fs"
+import { copyFileSync, existsSync, mkdtempSync, readFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join, resolve } from "node:path"
-import { afterEach, beforeAll, describe, expect, it } from "vitest"
+import { basename, join } from "node:path"
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest"
+
+// On a machine with FM installed the game's own archive folder (under the home folder) is
+// searched too; an empty home keeps the saved matches there out of these counts.
+vi.mock("node:os", async (original) => {
+  const os = await original<typeof import("node:os")>()
+  const homedir = () => join(os.tmpdir(), "fm-analyst-no-home")
+  return { ...os, homedir, default: { ...os, homedir } }
+})
 
 import { checkActions, lastActions, previousMatches, rememberMatch, saveActions, teamMetrics, trendRows, warmMatchCache } from "../src/metrics"
 import type { MatchModel } from "../src/model"
@@ -11,6 +19,12 @@ import { loadArchive } from "../src/sources"
 
 const archive = process.env.FM_ANALYST_TEST_ARCHIVE ?? "../local/archives/2025-12-30-Chicago-vs-LAFC-1-0.fmlens"
 const saved = { ...process.env }
+/** A folder holding only the test archive, so other saved matches next to it don't count. */
+function archiveFolder(): string {
+  const folder = mkdtempSync(join(tmpdir(), "fm-archives-"))
+  copyFileSync(archive, join(folder, basename(archive)))
+  return folder
+}
 afterEach(() => {
   process.env = { ...saved }
 })
@@ -33,7 +47,7 @@ describe.skipIf(!existsSync(archive))("figures across matches", () => {
 
   it("finds earlier saved matches, leaves out this one, and caches them", async () => {
     process.env.FM_ANALYST_DATA_DIR = mkdtempSync(join(tmpdir(), "fm-metrics-"))
-    process.env.FMMATCHLENS_ARCHIVE_DIR = resolve(archive, "..")
+    process.env.FMMATCHLENS_ARCHIVE_DIR = archiveFolder()
     expect(await previousMatches("Chicago", model.matchId)).toEqual([])
     const other = await previousMatches("Chicago", "some-other-match")
     expect(other).toHaveLength(1)
@@ -48,7 +62,7 @@ describe.skipIf(!existsSync(archive))("figures across matches", () => {
 
   it("remembers a match it already has, so its archive is never read again", async () => {
     process.env.FM_ANALYST_DATA_DIR = mkdtempSync(join(tmpdir(), "fm-metrics-"))
-    process.env.FMMATCHLENS_ARCHIVE_DIR = resolve(archive, "..")
+    process.env.FMMATCHLENS_ARCHIVE_DIR = archiveFolder()
     await rememberMatch(model)
     const started = performance.now()
     const other = await previousMatches("Chicago", "some-other-match")
@@ -58,7 +72,7 @@ describe.skipIf(!existsSync(archive))("figures across matches", () => {
 
   it("fills the cache in the background only while idle", async () => {
     process.env.FM_ANALYST_DATA_DIR = mkdtempSync(join(tmpdir(), "fm-metrics-"))
-    process.env.FMMATCHLENS_ARCHIVE_DIR = resolve(archive, "..")
+    process.env.FMMATCHLENS_ARCHIVE_DIR = archiveFolder()
     expect(await warmMatchCache(() => false, { pauseMs: 0 })).toBe(0)
     expect(await warmMatchCache(() => true, { pauseMs: 0 })).toBe(1)
     expect(await warmMatchCache(() => true, { pauseMs: 0 })).toBe(0)

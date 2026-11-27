@@ -100,8 +100,13 @@ type MatchRecord = {
   /** The archive it was read from, when it was (so a changed file is read again). */
   file?: string
   modified?: string
+  /** On an unreadable-archive marker: the analyst version that couldn't read it (a newer one tries again). */
+  readerVersion?: string
 }
 type MetricsCache = { version: 2; matches: Record<string, MatchRecord> }
+
+declare const __VERSION__: string
+const READER_VERSION = typeof __VERSION__ === "string" ? __VERSION__ : "dev"
 
 const cacheFile = () => join(dataFolder(), "match-metrics.json")
 let memory: { folder: string; cache: MetricsCache } | undefined
@@ -189,7 +194,14 @@ async function unread(cache: MetricsCache, team?: string): Promise<ArchiveEntry[
     if (wanted && entry.home && entry.away && norm(entry.home) !== wanted && norm(entry.away) !== wanted) return false
     const key = entryKey(entry)
     const known = key ? cache.matches[key] : undefined
-    if (!known) return !Object.values(cache.matches).some((record) => record.file === entry.file && record.modified === entry.modified)
+    if (!known) {
+      return !Object.values(cache.matches).some(
+        (record) =>
+          record.file === entry.file &&
+          record.modified === entry.modified &&
+          (record.matchId !== "" || record.readerVersion === READER_VERSION)
+      )
+    }
     return Boolean(known.file === entry.file && known.modified !== entry.modified)
   })
 }
@@ -201,7 +213,9 @@ async function readInto(entry: ArchiveEntry): Promise<void> {
   } catch {
     // Unreadable: remember the file so it is not tried every time.
     const cache = await readCache()
-    cache.matches[`file|${entry.file}`] = { matchId: "", home: "", away: "", metrics: { home: {}, away: {} }, file: entry.file, modified: entry.modified }
+    cache.matches[`file|${entry.file}`] = {
+      matchId: "", home: "", away: "", metrics: { home: {}, away: {} }, file: entry.file, modified: entry.modified, readerVersion: READER_VERSION,
+    }
     await writeCache(cache)
     return
   }

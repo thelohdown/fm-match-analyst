@@ -21,7 +21,7 @@ import { clockLabel } from "./clock"
 import type { MatchModel } from "./model"
 import { phaseReport } from "./phaseViews"
 import { buildHalfTime, buildPostMatch, LIMITS, lengthProblems, missingInputs, saveReport } from "./report"
-import { DEFAULT_API, findArchive, listArchives, LiveSource, loadArchive, type ArchiveEntry } from "./sources"
+import { archiveProblem, DEFAULT_API, findArchive, knownProblem, listArchives, LiveSource, loadArchive, type ArchiveEntry } from "./sources"
 import * as views from "./views"
 
 declare const __VERSION__: string
@@ -32,6 +32,8 @@ const LIVE_WAIT_MS = Number(process.env.FM_ANALYST_LIVE_WAIT_MS ?? 40_000)
 type Selection = { kind: "auto" } | { kind: "live" } | { kind: "archive"; entry: ArchiveEntry }
 
 const WARM_DELAY_MS = 20_000
+/** How many of the newest archives to try before giving up when none is live. */
+const MAX_ARCHIVES_TRIED = 5
 
 export function createServer(options: { apiUrl?: string; startLive?: boolean } = {}) {
   const live = new LiveSource(options.apiUrl || setting("FMMATCHLENS_API") || DEFAULT_API)
@@ -76,20 +78,38 @@ export function createServer(options: { apiUrl?: string; startLive?: boolean } =
     if (selection.kind === "live") {
       return { error: live.lastError ?? "FMMatchLens has not captured a match yet. Start a match in FM; capture begins at kickoff." }
     }
-    const newest = (await listArchives())[0]
-    if (!newest) {
+    const archives = await listArchives()
+    if (archives.length === 0) {
       return {
         error:
           `${live.lastError ?? "FMMatchLens has not captured a match yet."} No saved match archives were found either ` +
           "(set FMMATCHLENS_ARCHIVE_DIR to the folder with the .fmlens files).",
       }
     }
-    const model = await loadArchive(newest)
-    void rememberMatch(model, newest).catch(() => undefined)
+    // A newer plugin, or a match left at kick-off, can leave an archive this version can't read.
+    // Fall back to the newest one it can, and say so, rather than failing every question.
+    const skipped: string[] = []
+    for (const entry of archives.slice(0, MAX_ARCHIVES_TRIED)) {
+      let model: MatchModel
+      try {
+        model = await loadArchive(entry)
+      } catch (error) {
+        skipped.push(`${entry.file}: ${archiveProblem(error)}`)
+        continue
+      }
+      void rememberMatch(model, entry).catch(() => undefined)
+      const notes =
+        skipped.length === 0
+          ? [`No live match from FMMatchLens, so this is the newest saved match: ${entry.file}. Use list_matches/load_match to pick another.`]
+          : [
+              `Tell the user first: the newest saved match${skipped.length > 1 ? "es" : ""} couldn't be read (${skipped.join("; ")}). ` +
+                `So this is an older match, the newest one that could be read: ${entry.file}.`,
+            ]
+      return { model, source: { kind: "archive", detail: entry.file }, notes }
+    }
     return {
-      model,
-      source: { kind: "archive", detail: newest.file },
-      notes: [`No live match from FMMatchLens, so this is the newest saved match: ${newest.file}. Use list_matches/load_match to pick another.`],
+      error:
+        `${live.lastError ?? "No live match from FMMatchLens."} The newest saved matches couldn't be read either: ${skipped.join("; ")}.`,
     }
   }
 
@@ -105,7 +125,7 @@ export function createServer(options: { apiUrl?: string; startLive?: boolean } =
       const body = build(result) as Record<string, unknown>
       return reply(notes.length > 0 ? { notes, ...body } : body)
     } catch (error) {
-      return failure(`Could not read the match: ${(error as Error).message}`)
+      return failure(`Could not read the match: ${archiveProblem(error)}`)
     }
   }
 
@@ -397,7 +417,11 @@ export function createServer(options: { apiUrl?: string; startLive?: boolean } =
               read: `${Math.round(live.progress() * 100)}%`,
             }
           : (live.lastError ?? "no match captured yet"),
-        archives: archives.slice(0, args.limit ?? 20).map(({ path: _path, ...entry }) => entry),
+        archives: archives.slice(0, args.limit ?? 20).map((entry) => {
+          const { path: _path, ...rest } = entry
+          const problem = knownProblem(entry)
+          return problem ? { ...rest, unreadable: problem } : rest
+        }),
         totalArchives: archives.length,
       })
     }
@@ -420,6 +444,11 @@ export function createServer(options: { apiUrl?: string; startLive?: boolean } =
       }
       const entry = await findArchive(match)
       if (!entry) return failure(`No archive matches "${match}". list_matches shows what there is.`)
+      try {
+        await loadArchive(entry)
+      } catch (error) {
+        return failure(`Could not read ${entry.file}: ${archiveProblem(error)}. The other tools still read what they read before.`)
+      }
       selection = { kind: "archive", entry }
       return withMatch(({ model, source }) => ({ loaded: entry.file, ...views.matchState(model, source) }))
     }
